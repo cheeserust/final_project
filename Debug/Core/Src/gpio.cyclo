@@ -1,0 +1,6 @@
+../Core/Src/gpio.c:3:13:gpio_output	1
+../Core/Src/gpio.c:13:13:gpio_input_pullup	1
+../Core/Src/gpio.c:20:13:gpio_af5	1
+../Core/Src/gpio.c:33:6:gpio_init	1
+../Core/Src/gpio.c:81:6:motor_enable	1
+../Core/Src/gpio.c:86:6:motor_disable	1

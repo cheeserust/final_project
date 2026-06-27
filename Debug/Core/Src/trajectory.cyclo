@@ -1,0 +1,13 @@
+../Core/Src/trajectory.c:18:16:any_axis_busy	5
+../Core/Src/trajectory.c:26:16:queue_push	2
+../Core/Src/trajectory.c:35:16:queue_pop	2
+../Core/Src/trajectory.c:44:13:staging_clear	1
+../Core/Src/trajectory.c:51:6:trajectory_cancel_staging	1
+../Core/Src/trajectory.c:56:6:trajectory_clear	3
+../Core/Src/trajectory.c:74:9:trajectory_free_count	1
+../Core/Src/trajectory.c:79:9:trajectory_angle_raw_to_step	2
+../Core/Src/trajectory.c:90:9:trajectory_check_staging_timeout	3
+../Core/Src/trajectory.c:100:9:trajectory_stage_command	13
+../Core/Src/trajectory.c:146:13:start_axis_segment	3
+../Core/Src/trajectory.c:163:13:try_start_next_point	4
+../Core/Src/trajectory.c:175:6:trajectory_update_1ms	7

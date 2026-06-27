@@ -1,0 +1,10 @@
+../Core/Src/can_proto.c:7:16:get_i32_le	24	static
+../Core/Src/can_proto.c:16:17:get_u16_le	16	static
+../Core/Src/can_proto.c:21:6:can_send_status	16	static
+../Core/Src/can_proto.c:37:13:set_all_axis_enabled	24	static
+../Core/Src/can_proto.c:44:13:handle_estop	8	static
+../Core/Src/can_proto.c:56:13:handle_enable	16	static
+../Core/Src/can_proto.c:76:13:handle_homing	24	static
+../Core/Src/can_proto.c:100:13:handle_clear_error	24	static
+../Core/Src/can_proto.c:117:13:handle_move	32	static
+../Core/Src/can_proto.c:161:6:can_process_frame	16	static

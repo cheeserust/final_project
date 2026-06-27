@@ -1,0 +1,6 @@
+../Core/Src/state.c:10:16:any_axis_homing	16	static
+../Core/Src/state.c:18:16:any_axis_moving	16	static
+../Core/Src/state.c:26:6:system_update_state	8	static
+../Core/Src/state.c:35:9:system_homing_done_bits	16	static
+../Core/Src/state.c:44:9:system_enabled_status	4	static
+../Core/Src/state.c:49:9:system_first_moving_axis	16	static

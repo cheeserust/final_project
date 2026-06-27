@@ -1,0 +1,5 @@
+../Core/Src/tmc5160.c:9:13:tmc_cs_low	16	static
+../Core/Src/tmc5160.c:17:13:tmc_cs_high	16	static
+../Core/Src/tmc5160.c:25:13:tmc5160_write	32	static
+../Core/Src/tmc5160.c:51:13:tmc5160_init_axis	16	static
+../Core/Src/tmc5160.c:59:6:tmc5160_init_all	16	static

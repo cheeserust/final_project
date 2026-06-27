@@ -1,0 +1,13 @@
+../Core/Src/stepper.c:9:13:step_pin_high	5
+../Core/Src/stepper.c:17:13:step_pin_low	5
+../Core/Src/stepper.c:25:13:dir_set	6
+../Core/Src/stepper.c:40:16:limit_raw_pressed	5
+../Core/Src/stepper.c:50:16:limit_pressed_debounced	3
+../Core/Src/stepper.c:60:9:stepper_limit_status_bits	3
+../Core/Src/stepper.c:69:6:stepper_init	2
+../Core/Src/stepper.c:88:6:stepper_stop_axis	2
+../Core/Src/stepper.c:102:6:stepper_stop_all	2
+../Core/Src/stepper.c:109:6:stepper_start_homing	4
+../Core/Src/stepper.c:128:6:stepper_start_homing_all	2
+../Core/Src/stepper.c:135:13:emit_step	2
+../Core/Src/stepper.c:142:6:stepper_update_10us	8
