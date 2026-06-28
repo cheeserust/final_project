@@ -1,13 +1,13 @@
 floors:
-  "4":
-    map: "maps/floor4.yaml"
+  4:
+    map: "maps/4f.yaml"
     dock:           {x:  3.748, y: -18.219, yaw: 0.0}
     elevator_front: {x: -0.022, y:   0.090, yaw: 0.0}
     rooms:
       "401":        {x: -0.535, y: -10.839, yaw: 0.0}
       "402":        {x:  2.678, y: -10.399, yaw: 0.0}
-  "5":
-    map: "maps/floor5.yaml"
+  5:
+    map: "maps/5f.yaml"
     dock:           {x: -0.226, y:  -0.154, yaw: 0.0}
     elevator_front: {x: 15.771, y:   2.634, yaw: 0.0}
     rooms:

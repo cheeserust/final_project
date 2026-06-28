@@ -1,5 +1,6 @@
 markers:
   4:
+    type: "landing"
     floor_number: 4
     map_yaml: "maps/4f.yaml"
     initial_pose:
@@ -8,6 +9,7 @@ markers:
       yaw: 0
 
   5:
+    type: "landing"
     floor_number: 5
     map_yaml: "maps/5f.yaml"
     initial_pose:
@@ -15,13 +17,13 @@ markers:
       y: -1.390
       yaw: 0
   
-  4_elevator:
-    floor_number: 4
-    map_yaml: "maps/4f.yaml"
-    current_pose: 
-      x:
-      y:
-      yaw:
+  10:
+    type: "elevator_interior"
+    map_yaml: "maps/elevator.yaml"
+    initial_pose: 
+      x: 0 # will be updated
+      y: 0 # will be updated
+      yaw: 0 # will be updated
   
   
       
