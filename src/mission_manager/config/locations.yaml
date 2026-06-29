@@ -1,0 +1,64 @@
+locations:
+  pickup_zone:
+    floor: 1
+    marker_id: -1
+    type: pickup_zone
+
+  delivery_zone:
+    floor: "$target_floor"
+    marker_id: -1
+    type: delivery_zone
+
+  elevator_staging_1f:
+    floor: 1
+    marker_id: -1
+    type: navigation_goal
+
+  outer_panel_1f:
+    floor: 1
+    marker_id: 11
+    type: docking_target
+
+  call_button_1f:
+    floor: 1
+    marker_id: 11
+    type: button_target
+
+  elevator_door_1f:
+    floor: 1
+    marker_id: -1
+    type: elevator_door
+
+  door_center_1f:
+    floor: 1
+    marker_id: 10
+    type: docking_target
+
+  inside_elevator:
+    floor: 1
+    marker_id: 20
+    type: navigation_goal
+
+  inner_panel_docking:
+    floor: 1
+    marker_id: 21
+    type: docking_target
+
+  target_floor_button:
+    floor: "$target_floor"
+    marker_id: 21
+    type: button_target
+
+  target_floor_exit:
+    floor: "$target_floor"
+    marker_id: 30
+    type: navigation_goal
+
+  target_floor_marker:
+    floor: "$target_floor"
+    type: floor_marker
+
+    marker_id_by_floor:
+      1: 31
+      2: 32
+      3: 33

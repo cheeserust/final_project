@@ -1,0 +1,8 @@
+board1_simulator:
+  ros__parameters:
+    can_interface: "vcan0"
+    status_period_ms: 100
+    update_period_ms: 5
+    homing_duration_ms: 500
+    queue_capacity: 32
+    auto_status_on_event: true

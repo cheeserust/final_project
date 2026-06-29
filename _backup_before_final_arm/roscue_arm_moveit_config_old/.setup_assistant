@@ -1,0 +1,19 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: roscue_arm_description
+    relative_path: urdf/Untitled.urdf.xacro
+  srdf:
+    relative_path: config/Untitled.srdf
+  package_settings:
+    author_name: ""
+    author_email: ""
+    generated_timestamp: 1782371871
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro

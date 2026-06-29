@@ -1,0 +1,8 @@
+vicpinky_nav_adapter:
+  ros__parameters:
+    run_task_action_name: "/nav/go_to"
+    navigate_action_name: "/navigate_to_pose"
+    default_frame_id: "map"
+    nav_server_wait_timeout_sec: 5.0
+    goal_response_timeout_sec: 10.0
+    feedback_log_period_sec: 1.0

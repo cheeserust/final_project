@@ -1,0 +1,241 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="roscue_arm_macro">
+
+  <xacro:macro name="roscue_arm" params="prefix">
+
+    <!-- Links -->
+    <link name="${prefix}base_link">
+      <inertial>
+        <origin xyz="0.085592 -0.000006 0.033051" rpy="0 0 0"/>
+        <mass value="2.059958"/>
+        <inertia ixx="9.903517e-03" ixy="-2.704119e-06" ixz="-7.021209e-03"
+                 iyy="2.508404e-02" iyz="-5.074094e-07" izz="2.166122e-02"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.000000 0.000000 0.000000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/base_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="Aluminum_6061"/>
+      </visual>
+      <collision>
+        <origin xyz="0.000000 0.000000 0.000000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/base_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <link name="${prefix}first_link">
+      <inertial>
+        <origin xyz="0.004239 0.000002 0.047508" rpy="0 0 0"/>
+        <mass value="2.740366"/>
+        <inertia ixx="8.847475e-03" ixy="-2.706351e-07" ixz="-7.679844e-05"
+                 iyy="1.074798e-02" iyz="5.141790e-07" izz="7.944490e-03"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.000000 0.000000 -0.027000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/first_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="Aluminum_6061"/>
+      </visual>
+      <collision>
+        <origin xyz="0.000000 0.000000 -0.027000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/first_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <link name="${prefix}second_link">
+      <inertial>
+        <origin xyz="0.090440 0.027174 0.062055" rpy="0 0 0"/>
+        <mass value="2.121384"/>
+        <inertia ixx="7.133714e-03" ixy="-5.709297e-04" ixz="-1.241331e-03"
+                 iyy="1.865493e-02" iyz="-1.829145e-03" izz="1.667169e-02"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.000000 -0.000000 -0.015000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/second_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="Aluminum_6061"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.000000 -0.000000 -0.015000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/second_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <link name="${prefix}third_link">
+      <inertial>
+        <origin xyz="0.000004 0.054418 0.100360" rpy="0 0 0"/>
+        <mass value="1.052809"/>
+        <inertia ixx="8.554377e-03" ixy="2.966167e-07" ixz="6.240968e-07"
+                 iyy="7.514592e-03" iyz="-1.419918e-03" izz="1.358899e-03"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.000000 0.021500 -0.380000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/third_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="pla_plus"/>
+      </visual>
+      <collision>
+        <origin xyz="0.000000 0.021500 -0.380000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/third_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <link name="${prefix}fourth_link">
+      <inertial>
+        <origin xyz="0.000000 -0.007427 0.049250" rpy="0 0 0"/>
+        <mass value="0.211718"/>
+        <inertia ixx="1.090154e-04" ixy="1.383154e-10" ixz="3.069742e-11"
+                 iyy="1.109803e-04" iyz="-5.814571e-07" izz="5.571132e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="0.000000 0.002500 -0.560000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/fourth_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="pla_plus"/>
+      </visual>
+      <collision>
+        <origin xyz="0.000000 0.002500 -0.560000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/fourth_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <link name="${prefix}gripper_base_link">
+      <inertial>
+        <origin xyz="0.000002 0.000038 0.019700" rpy="0 0 0"/>
+        <mass value="0.198410"/>
+        <inertia ixx="1.885169e-04" ixy="-2.077551e-08" ixz="-6.621486e-08"
+                 iyy="1.864991e-04" iyz="5.126721e-07" izz="1.532954e-04"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.057129 0.166814 -0.015000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/gripper_base_link.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="Steel"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.057129 0.166814 -0.015000" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/roscue_arm/gripper_base_link.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <!-- Joints (internal to assembly) -->
+    <joint name="${prefix}base_joint" type="revolute">
+      <parent link="${prefix}base_link"/>
+      <child link="${prefix}first_link"/>
+      <origin xyz="0.000000 0.000000 0.027000" rpy="0.000000 -0.000000 0.000000"/>
+      <axis xyz="0.000000 0.000000 -1.000000"/>
+      <limit lower="-1.5708" upper="3.1416" effort="100.0" velocity="1.00"/>
+    </joint>
+
+    <joint name="${prefix}arm_joint_1" type="revolute">
+      <parent link="${prefix}first_link"/>
+      <child link="${prefix}second_link"/>
+      <origin xyz="-0.065000 0.000000 0.063000" rpy="0.000000 -1.570796 0.000000"/>
+      <axis xyz="-0.000000 -0.000000 -1.000000"/>
+      <limit lower="-1.5708" upper="1.5708" effort="100.0" velocity="1.00"/>
+    </joint>
+
+    <joint name="${prefix}arm_joint_2" type="revolute">
+      <parent link="${prefix}second_link"/>
+      <child link="${prefix}third_link"/>
+      <origin xyz="0.340500 0.000000 0.058500" rpy="-1.570796 -0.000000 -1.570796"/>
+      <axis xyz="0.000000 1.000000 0.000000"/>
+      <limit lower="-1.3963" upper="1.3963" effort="100.0" velocity="1.00"/>
+    </joint>
+
+    <joint name="${prefix}arm_joint_3" type="revolute">
+      <parent link="${prefix}third_link"/>
+      <child link="${prefix}fourth_link"/>
+      <origin xyz="-0.000500 0.019500 0.180000" rpy="-0.000000 0.000000 0.000000"/>
+      <axis xyz="0.000000 1.000000 0.000000"/>
+      <limit lower="-1.5708" upper="1.5708" effort="100.0" velocity="1.00"/>
+    </joint>
+
+    <joint name="${prefix}arm_joint_4" type="revolute">
+      <parent link="${prefix}fourth_link"/>
+      <child link="${prefix}gripper_base_link"/>
+      <origin xyz="-0.000000 0.002500 0.090000" rpy="0.000000 -0.000000 1.570796"/>
+      <axis xyz="-0.000000 0.000000 1.000000"/>
+      <limit lower="-2.9671" upper="2.9671" effort="100.0" velocity="1.00"/>
+    </joint>
+
+    <!-- ROS 2 control: generated generic system -->
+    <ros2_control name="${prefix}roscue_arm_system" type="system">
+      <hardware>
+        <plugin>mock_components/GenericSystem</plugin>
+        <param name="cmd_topic">sim/roscue_arm_system/cmd</param>
+        <param name="state_topic">sim/roscue_arm_system/state</param>
+      </hardware>
+
+      <joint name="${prefix}arm_joint_1">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="${prefix}arm_joint_2">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="${prefix}arm_joint_3">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="${prefix}arm_joint_4">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+
+      <joint name="${prefix}base_joint">
+        <command_interface name="position"/>
+        <command_interface name="velocity"/>
+        <state_interface name="position">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+    </ros2_control>
+
+  </xacro:macro>
+
+</robot>

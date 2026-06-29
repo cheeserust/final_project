@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="finger_3_middle_link_macro">
+
+  <xacro:macro name="finger_3_middle_link" params="prefix">
+
+    <!-- Links -->
+    <link name="${prefix}finger3_link_1_1">
+      <inertial>
+        <origin xyz="-0.024621 0.015930 -0.000043" rpy="0 0 0"/>
+        <mass value="0.042171"/>
+        <inertia ixx="6.544513e-06" ixy="-4.094667e-07" ixz="-3.882140e-08"
+                 iyy="1.978938e-05" iyz="-3.776827e-08" izz="2.393266e-05"/>
+      </inertial>
+      <visual>
+        <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/finger_3_middle_link/finger3_link_1_1.dae" scale="1 1 1"/>
+        </geometry>
+        <material name="pla_plus"/>
+      </visual>
+      <collision>
+        <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://roscue_arm_description/meshes/finger_3_middle_link/finger3_link_1_1.dae" scale="1 1 1"/>
+        </geometry>
+      </collision>
+    </link>
+
+  </xacro:macro>
+
+</robot>

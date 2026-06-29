@@ -1,0 +1,66 @@
+servers:
+  /nav/go_to:
+    delay_sec: 3.0
+    success: true
+    phases:
+      - planning
+      - moving
+      - arrived
+
+  /dock/align:
+    delay_sec: 2.0
+    success: true
+    phases:
+      - searching_marker
+      - aligning
+      - aligned
+
+  /arm/pick:
+    delay_sec: 4.0
+    success: true
+    phases:
+      - pre_grasp
+      - grasp
+      - lift
+
+  /arm/place:
+    delay_sec: 4.0
+    success: true
+    phases:
+      - pre_place
+      - place
+      - release
+
+  /arm/press_button:
+    delay_sec: 3.0
+    success: true
+    phases:
+      - move_to_button
+      - press
+      - retreat
+
+  /elevator/wait_door_open:
+    delay_sec: 5.0
+    success: true
+    phases:
+      - waiting
+      - checking_door
+      - door_open
+
+  /elevator/ride:
+    delay_sec: 8.0
+    success: true
+    phases:
+      - WAIT_BOARD
+      - BOARDING
+      - RIDING
+      - EXITING
+      - DONE
+
+  /floor/check:
+    delay_sec: 2.0
+    success: true
+    phases:
+      - detect_marker
+      - verify_floor
+      - floor_confirmed

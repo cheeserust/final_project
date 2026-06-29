@@ -1,0 +1,52 @@
+mission:
+  name: elevator_delivery_demo
+
+  steps:
+    - state: GO_TO_PICKUP_ZONE
+      task: go_to
+      target: "$pickup_location"
+      location: "$pickup_location"
+
+    - state: PICK_OBJECT
+      task: pick
+      target: "$object_label"
+      location: "$pickup_location"
+
+    - state: GO_TO_ELEVATOR_STAGING
+      task: go_to
+      target: elevator_staging
+      location: elevator_staging_1f
+
+    - state: DOCK_TO_OUTER_PANEL
+      task: dock_to_marker
+      target: outer_panel
+      location: outer_panel_1f
+
+    - state: PRESS_CALL_BUTTON
+      task: press_button
+      target: call_button
+      location: call_button_1f
+
+    - state: RIDE_ELEVATOR
+      task: elevator_ride
+      target: elevator_ride
+      location: target_floor_marker
+      extra:
+        fsm_states:
+          - WAIT_BOARD
+          - BOARDING
+          - RIDING
+          - EXITING
+          - DONE
+        boarding_location: door_center_1f
+        exit_location: target_floor_exit
+
+    - state: GO_TO_DELIVERY_ZONE
+      task: go_to
+      target: "$delivery_location"
+      location: "$delivery_location"
+
+    - state: PLACE_OBJECT
+      task: place
+      target: "$delivery_location"
+      location: "$delivery_location"

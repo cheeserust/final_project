@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VicPinky Control</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark">VP</div>
+      <div class="brand-copy">
+        <h1>VicPinky Control</h1>
+        <div id="connectionStatus" class="connection-pill">Connecting</div>
+      </div>
+      <button id="estopTopButton" class="danger-button" type="button" title="Emergency stop">
+        ESTOP
+      </button>
+    </header>
+
+    <main class="dashboard">
+      <section class="panel mission-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Mission</h2>
+            <div id="missionState" class="meta-line">No status</div>
+          </div>
+          <div id="missionReady" class="status-chip neutral">Action</div>
+        </div>
+
+        <form id="missionForm" class="mission-form">
+          <label>
+            Mission ID
+            <input id="missionId" name="mission_id" autocomplete="off">
+          </label>
+          <label>
+            Object
+            <input id="objectLabel" name="object_label" autocomplete="off">
+          </label>
+          <label>
+            Pickup
+            <select id="pickupLocation" name="pickup_location"></select>
+          </label>
+          <label>
+            Delivery
+            <select id="deliveryLocation" name="delivery_location"></select>
+          </label>
+          <label>
+            Floor
+            <input id="targetFloor" name="target_floor" type="number" step="1" min="1">
+          </label>
+          <div class="form-actions">
+            <button id="startMissionButton" class="primary-button" type="submit">
+              Start
+            </button>
+            <button id="cancelMissionButton" class="secondary-button" type="button">
+              Cancel
+            </button>
+          </div>
+        </form>
+
+        <div class="progress-wrap">
+          <div class="progress-row">
+            <span>Progress</span>
+            <strong id="missionProgressText">0%</strong>
+          </div>
+          <div class="progress-track">
+            <div id="missionProgressBar" class="progress-bar"></div>
+          </div>
+        </div>
+
+        <div class="fsm-wrap">
+          <div class="fsm-heading">
+            <span>Elevator FSM</span>
+            <strong id="elevatorFsmState">-</strong>
+          </div>
+          <div id="elevatorFsmSteps" class="fsm-steps"></div>
+        </div>
+
+        <dl class="status-list">
+          <div>
+            <dt>Task</dt>
+            <dd id="missionTask">-</dd>
+          </div>
+          <div>
+            <dt>Message</dt>
+            <dd id="missionMessage">-</dd>
+          </div>
+          <div>
+            <dt>Result</dt>
+            <dd id="missionResult">-</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel arm-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Arm Board</h2>
+            <div id="armAge" class="meta-line">No board status</div>
+          </div>
+          <button id="statusButton" class="icon-button" type="button" title="Refresh board status">
+            Status
+          </button>
+        </div>
+
+        <div class="command-bar">
+          <button data-arm-command="enable" type="button">Enable</button>
+          <button data-arm-command="disable" type="button">Disable</button>
+          <button data-arm-command="home_all" type="button">Home</button>
+          <button data-arm-command="clear_error" type="button">Clear</button>
+          <button data-arm-command="estop" class="danger-command" type="button">ESTOP</button>
+        </div>
+
+        <div id="boardGrid" class="board-grid"></div>
+      </section>
+
+      <section class="panel joint-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Joint States</h2>
+            <div id="jointAge" class="meta-line">No joint state</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="joint-table">
+            <thead>
+              <tr>
+                <th>Joint</th>
+                <th>Rad</th>
+                <th>Deg</th>
+              </tr>
+            </thead>
+            <tbody id="jointTableBody">
+              <tr>
+                <td colspan="3">No data</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel flow-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Mission Flow</h2>
+            <div id="flowMeta" class="meta-line">Configured steps</div>
+          </div>
+        </div>
+        <ol id="flowList" class="flow-list"></ol>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Event Log</h2>
+            <div id="serverTime" class="meta-line">-</div>
+          </div>
+        </div>
+        <div class="log-columns">
+          <div>
+            <h3>Control</h3>
+            <ul id="eventLog" class="log-list"></ul>
+          </div>
+          <div>
+            <h3>Board Status</h3>
+            <ul id="armLog" class="log-list"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

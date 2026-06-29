@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="Untitled">
+
+  <!-- Materials (shared across all assemblies) -->
+  <material name="Aluminum_6061">
+    <color rgba="0.961 0.961 0.965 1.0"/>
+  </material>
+  <material name="pla_plus">
+    <color rgba="0.941 0.933 0.914 1.0"/>
+  </material>
+
+  <!-- Assembly includes -->
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/Untitled.urdf.xacro"/>
+
+  <!-- Instantiate assemblies -->
+  <xacro:Untitled prefix=""/>
+
+</robot>

@@ -1,0 +1,212 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="roscue_arm">
+
+  <!-- Materials (shared across all assemblies) -->
+  <material name="Aluminum_6061">
+    <color rgba="0.961 0.961 0.965 1.0"/>
+  </material>
+  <material name="pla_plus">
+    <color rgba="0.941 0.933 0.914 1.0"/>
+  </material>
+  <material name="Steel">
+    <color rgba="0.627 0.627 0.627 1.0"/>
+  </material>
+
+  <!-- Assembly includes -->
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_1_middle_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_3_middle_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_3_tip_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_2_middle_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_2_tip_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_3_base_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_1_base_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_1_tip_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/finger_2_base_link.urdf.xacro"/>
+  <xacro:include filename="$(find roscue_arm_description)/urdf/assemblies/roscue_arm.urdf.xacro"/>
+
+  <!-- Instantiate assemblies -->
+  <xacro:finger_1_middle_link prefix=""/>
+  <xacro:finger_3_middle_link prefix=""/>
+  <xacro:finger_3_tip_link prefix=""/>
+  <xacro:finger_2_middle_link prefix=""/>
+  <xacro:finger_2_tip_link prefix=""/>
+  <xacro:finger_3_base_link prefix=""/>
+  <xacro:finger_1_base_link prefix=""/>
+  <xacro:finger_1_tip_link prefix=""/>
+  <xacro:finger_2_base_link prefix=""/>
+  <xacro:roscue_arm prefix=""/>
+
+  <!-- Mount joints (cross-assembly connections) -->
+
+  <joint name="finger_1_base_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_1_1_1"/>
+    <origin xyz="-0.000308 0.047572 0.011400" rpy="0.000000 -0.000000 1.570796"/>
+    <axis xyz="0.000000 0.000000 1.000000"/>
+    <limit lower="-1.2269" upper="1.2269" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_base_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_2_1_1"/>
+    <origin xyz="0.040983 -0.024158 0.015200" rpy="0.000000 -0.000000 -0.523599"/>
+    <axis xyz="0.000000 -0.000000 1.000000"/>
+    <limit lower="-1.2269" upper="1.2269" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_base_joint" type="revolute">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_3_1_1"/>
+    <origin xyz="-0.040913 -0.024275 0.015200" rpy="0.000000 0.000000 -2.617994"/>
+    <axis xyz="0.000000 -0.000000 1.000000"/>
+    <limit lower="-1.2269" upper="1.2269" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_1_middle_joint" type="revolute">
+    <parent link="hand_finger_link_1_1_1"/>
+    <child link="finger1_link_1_1"/>
+    <origin xyz="0.035050 0.021150 0.060800" rpy="0.000000 0.000000 -3.141593"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit lower="-2.4033" upper="0.9198" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_middle_joint" type="revolute">
+    <parent link="hand_finger_link_2_1_1"/>
+    <child link="finger2_link_1_1"/>
+    <origin xyz="0.035050 0.014150 0.057000" rpy="0.000000 -0.000000 -3.141593"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit lower="-2.4033" upper="0.9198" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_middle_joint" type="revolute">
+    <parent link="hand_finger_link_3_1_1"/>
+    <child link="finger3_link_1_1"/>
+    <origin xyz="0.035050 0.021150 0.057000" rpy="0.000000 0.000000 3.141593"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit lower="-2.4033" upper="0.9198" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_1_tip_joint" type="revolute">
+    <parent link="finger1_link_1_1"/>
+    <child link="finger1_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 0.000000"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit lower="-1.9426" upper="1.9426" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_tip_joint" type="revolute">
+    <parent link="finger2_link_1_1"/>
+    <child link="finger2_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 -0.000000"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit lower="-1.9426" upper="1.9426" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_tip_joint" type="revolute">
+    <parent link="finger3_link_1_1"/>
+    <child link="finger3_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 -0.000000"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit lower="-1.9426" upper="1.9426" effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <!-- ROS 2 control: generated generic system -->
+  <ros2_control name="roscue_arm_system" type="system">
+    <hardware>
+      <plugin>mock_components/GenericSystem</plugin>
+      <param name="cmd_topic">sim/roscue_arm_system/cmd</param>
+      <param name="state_topic">sim/roscue_arm_system/state</param>
+    </hardware>
+
+    <joint name="finger_1_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_1_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_1_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_2_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_2_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_2_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_3_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_3_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+
+    <joint name="finger_3_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+</robot>
