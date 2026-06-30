@@ -9,8 +9,10 @@ from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav2_msgs.srv import LoadMap
 from cv_bridge import CvBridge
+from typing import Optional
+
 import cv2
-import math
+
 
 # ── 설정값 (현장에 맞게 조정) ───────────────────────────────
 BOARD_MARKER_ID   = 10          # 탑승용: 캐빈 안쪽 입구 위에 붙인 마커
@@ -24,20 +26,13 @@ DRIVE_SPEED       = 0.15         # m/s, 안전하게 느리게
 BOARD_DRIVE_SEC   = 3.0          # 전진 탑승 시간(거리 = 속도×시간). 캐빈 깊이에 맞게
 EXIT_DRIVE_SEC    = 3.0          # 하차 주행 시간
 
-#turning 관련 => 일단 보류
-#TURN_SPEED        = 0.5          # rad/s
-#TURN_AFTER_BOARD  = False        # (A)안 쓰려면 True. False면 후진하차.
-
-DEBOUNCE_FRAMES   = 5            # 마커가 N프레임 연속 보여야 "진짜 보임"으로 인정 (오검출 방지)
+DEBOUNCE_FRAMES   = 45            # 마커가 N프레임 연속 보여야 "진짜 보임"으로 인정 (오검출 방지)
 CONTROL_HZ        = 10.0
 # ────────────────────────────────────────────────────────────
 
 # FSM 상태 정의
 WAIT_BOARD = "WAIT_BOARD"   # 탑승 마커 대기 (= 출발층 문 열림 대기)
 BOARDING   = "BOARDING"     # 전진 탑승 중
-
-#turning 관련 => 일단 보류
-#TURNING    = "TURNING"      # (옵션) 180° 회전 중
 
 RIDING     = "RIDING"       # 운행 중, 도착층 floor-id 마커 대기
 EXITING    = "EXITING"      # 후진(또는 전진) 하차 중
@@ -70,13 +65,8 @@ class ElevatorMVP(Node):
         # 상태 변수
         self.state = WAIT_BOARD
 
-        # 아래 두 줄은 카메라 하나용 --> 일단 보류 (삭제 예정) 
-        #self.visible_ids = set()      # 현재 프레임에서 보이는 마커 ID들
-        #self.seen_count = {}          # 마커별 연속 검출 카운트(디바운스)
-
-
-        self.phase_start = None       # 현재 동작(주행/회전) 시작 시각
-        self.target_floor = None      # 검출된 도착층
+        self.phase_start: float = 0.0       # 현재 동작(주행/회전) 시작 시각
+        self.target_floor: Optional[int] = None      # 검출된 도착층
 
         # 제어 루프 (이미지 콜백과 분리: 검출은 콜백, 판단/주행은 타이머)
         self.create_timer(1.0 / CONTROL_HZ, self.control_loop)
@@ -126,10 +116,9 @@ class ElevatorMVP(Node):
                     break
 
         elif self.state == EXITING:
-            # 후진으로 하차
-            # 회전 관련 코드는 보류
-            # exit_speed = DRIVE_SPEED if TURN_AFTER_BOARD else -DRIVE_SPEED
-            
+           
+            if self.target_floor is None:        # 예외처리
+                return
             if t - self.phase_start < EXIT_DRIVE_SEC:
                 self.drive(linear=-DRIVE_SPEED) # 후진속도
             else:
@@ -141,18 +130,6 @@ class ElevatorMVP(Node):
 
         elif self.state == DONE:
             self.stop()
-        
-        """
-        회전관련 = 일단 보류
-        elif self.state == TURNING:
-            turn_sec = math.pi / TURN_SPEED              # 180° 도는 데 걸리는 시간
-            if t - self.phase_start < turn_sec:
-                self.drive(angular=TURN_SPEED)
-            else:
-                self.stop()
-                self.state = RIDING
-                self.get_logger().info("회전 완료 → 운행 대기(RIDING)")
-        """
 
     # ── 헬퍼 ────────────────────────────────────────────────
     def drive(self, linear=0.0, angular=0.0):
