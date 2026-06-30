@@ -82,6 +82,7 @@ static uint16_t get_u16_le(const uint8_t *p)
 static void put_i32_le(uint8_t *p, int32_t v)
 {
     uint32_t u = (uint32_t)v;
+    // u를 8비트로 쪼개서 4개로 나눔
     p[0] = (uint8_t)u;
     p[1] = (uint8_t)(u >> 8);
     p[2] = (uint8_t)(u >> 16);
