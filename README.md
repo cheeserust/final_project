@@ -11,6 +11,7 @@
 
 | 문서 | 내용 |
 | --- | --- |
+| [docs/SRC_STUDY_GUIDE.md](docs/SRC_STUDY_GUIDE.md) | `src/` 패키지/파일/코드 흐름을 공부하기 위한 상세 가이드 |
 | [PROJECT_ONBOARDING.md](PROJECT_ONBOARDING.md) | ROS 2 기본 개념, 패키지/노드/토픽/서비스/액션 설명 |
 | [ARM_CAN_PROTOCOL.md](ARM_CAN_PROTOCOL.md) | Board1/Board2/Board3 CAN 프로토콜 상세 |
 
@@ -63,18 +64,18 @@ mission_manager
 
 ```yaml
 locations:
-  pickup_zone:
-    floor: 1
+  room_402:
+    floor: 4
     marker_id: -1
     type: navigation_goal
     pose:
       frame_id: map
-      x: 1.20
-      y: 0.50
+      x: 0.0
+      y: 0.0
       yaw: 0.0
 ```
 
-`yaw`는 radian이다. 맵에서 실제 좌표를 정한 뒤 위 값을 팀 맵 기준으로 채워야 한다.
+`yaw`는 radian이다. 위 `x`, `y`, `yaw`는 예시값이므로 주행팀 SLAM map 기준 실제 좌표로 채워야 한다.
 
 ### Arm CAN Bridge
 
@@ -89,11 +90,11 @@ locations:
 
 | Joint | 범위 | Home | Board | Motor ID |
 | --- | --- | --- | --- | --- |
-| `base_joint` | -90 deg ~ 180 deg | -90 deg | Board1 | 0 |
-| `arm_joint_1` | -90 deg ~ 90 deg | -90 deg | Board1 | 1 |
-| `arm_joint_2` | -80 deg ~ 80 deg | -80 deg | Board1 | 2 |
-| `arm_joint_3` | -90 deg ~ 90 deg | -90 deg | Board1 | 3 |
-| `arm_joint_4` | -170 deg ~ 170 deg | -170 deg | Board2 | 0 |
+| `base_joint` | -90 deg ~ 180 deg | -90 deg | Board2 | 0 |
+| `arm_joint_1` | -90 deg ~ 90 deg | -90 deg | Board1 | 0 |
+| `arm_joint_2` | -80 deg ~ 80 deg | -80 deg | Board1 | 1 |
+| `arm_joint_3` | -90 deg ~ 90 deg | -90 deg | Board1 | 2 |
+| `arm_joint_4` | -170 deg ~ 170 deg | -170 deg | Board1 | 3 |
 | `finger_1_base_joint` | -70.3 deg ~ 70.3 deg | 0 deg | Board3 | 0 |
 | `finger_1_middle_joint` | -137.7 deg ~ 52.7 deg | 0 deg | Board3 | 1 |
 | `finger_1_tip_joint` | -111.3 deg ~ 111.3 deg | 0 deg | Board3 | 2 |
@@ -104,28 +105,29 @@ locations:
 | `finger_3_middle_joint` | -137.7 deg ~ 52.7 deg | 0 deg | Board3 | 7 |
 | `finger_3_tip_joint` | -111.3 deg ~ 111.3 deg | 0 deg | Board3 | 8 |
 
-MoveIt2 팀이 arm trajectory를 보내면 중앙서버는 Board1/Board2 CAN frame으로 나눠 전송한다. gripper trajectory는 별도 Action으로 받아 Board3 CAN frame으로 전송한다. `/joint_states`는 두 controller의 commanded estimate를 합쳐서 발행한다.
+MoveIt2 팀이 arm trajectory를 보내면 중앙서버는 Board1/Board2 CAN frame으로 나눠 전송한다. gripper trajectory는 별도 Action으로 받아 Board3 CAN frame으로 전송한다. `/joint_states`는 실제 위치 피드백이 들어오면 `0x301/0x302/0x303` actual position을 우선 사용하고, 피드백이 아직 없을 때는 commanded estimate를 사용한다.
 
 ### CAN 보드
 
-| Board | 대상 | 명령 CAN ID | 상태 CAN ID |
-| --- | --- | --- | --- |
-| Board1 | 팔 1~4축 step motor | `0x101` | `0x201` |
-| Board2 | 팔 5축 step motor | `0x102` | `0x202` |
-| Board3 | three-finger gripper servo 9개 | `0x103` | `0x203` |
+| Board | 대상 | 명령 CAN ID | 상태 CAN ID | 위치 피드백 CAN ID |
+| --- | --- | --- | --- | --- |
+| Board1 | `arm_joint_1`~`arm_joint_4` step motor | `0x101` | `0x201` | `0x301` |
+| Board2 | `base_joint` step motor | `0x102` | `0x202` | `0x302` |
+| Board3 | three-finger gripper servo 9개 | `0x103` | `0x203` | `0x303` |
 
-공통 control command는 payload 첫 byte에 `board_id`를 넣는다.
+공통 control command는 CAN ID를 공유하지만 payload 구조가 명령마다 다르다.
+전체 broadcast는 `0xFF`를 기본으로 쓰고, legacy 호환용 `0x00`도 전체로 해석한다.
 
-| CAN ID | 의미 | Payload 시작 |
+| CAN ID | 의미 | 8-byte payload 시작 |
 | --- | --- | --- |
-| `0x001` | ESTOP | `[board_id]` |
-| `0x010` | Enable / Disable | `[board_id, enable]` |
-| `0x020` | Homing | `[board_id, motor_id, mode]` |
-| `0x030` | Clear Error | `[board_id, motor_id]` |
+| `0x001` | ESTOP | `[1, 0, 0, 0, 0, 0, 0, 0]` |
+| `0x010` | Enable / Disable | `[enable, target_board, 0, 0, 0, 0, 0, 0]` |
+| `0x020` | Homing | `[target_board, target_local_motor, mode, 0, 0, 0, 0, 0]` |
+| `0x030` | Clear Error | `[target_board, target_local_motor, 0, 0, 0, 0, 0, 0]` |
 
 상세 payload는 [ARM_CAN_PROTOCOL.md](ARM_CAN_PROTOCOL.md)를 본다.
 
-Board3 `0x203` status는 Board1/2와 일부 byte 의미가 다르다. Byte3은 moving motor가 아니라 `staging_count`, Byte5는 32-slot queue가 아니라 9개 gripper staging buffer의 free count, Byte7은 `fault_motor_id`다.
+Board1/2 실제 각도는 `0x301/0x302`로 받는다. Payload는 `[local_motor_id, flags, current_pos int32 little-endian, error_code, sequence]`이고, 각도 단위는 command target과 같은 0.01도다. Board1은 20ms마다 2프레임, Board2는 20ms마다 1프레임을 보낸다. Board3 `0x203` status는 Board1/2와 일부 byte 의미가 다르다. Byte3은 moving motor가 아니라 `staging_count`, Byte5는 32-slot queue가 아니라 9개 gripper staging buffer의 free count, Byte7은 `fault_motor_id`다. Board3 실제 각도는 별도 `0x303` 3프레임 압축 피드백으로 받으며, 각도 단위는 `int16` 0.01도이고 중앙서버가 radian으로 변환한다. Board3는 20ms마다 3프레임을 보낸다. `0x303` Byte7의 모터별 2-bit 상태는 `00 OK`, `01 MOVING`, `10 CONTACT_HOLD`, `11 ERROR`로 사용한다.
 
 ## 전체 흐름
 
@@ -145,7 +147,10 @@ flowchart LR
     Board1 -->|0x201| Bridge
     Board2 -->|0x202| Bridge
     Board3 -->|0x203| Bridge
-    Bridge -->|commanded estimate| JointStates[/joint_states]
+    Board1 -->|0x301 actual positions| Bridge
+    Board2 -->|0x302 actual positions| Bridge
+    Board3 -->|0x303 actual positions| Bridge
+    Bridge -->|joint positions| JointStates[/joint_states]
 ```
 
 ## 빌드
@@ -172,6 +177,29 @@ source ~/vicpinky_server_ws/install/setup.bash
 ros2 run mission_manager send_demo_mission
 ```
 
+사용 가능한 위치 이름 확인:
+
+```bash
+ros2 run mission_manager send_mission --list-locations
+```
+
+기본 데모는 `room_402`에서 출발해 `room_501`로 가는 4층 -> 5층 미션이다.
+목적지가 4층이면 `--target-floor`를 생략해도 delivery location 기준으로 4층을 자동 추론하고, 엘리베이터 관련 step은 자동 skip된다.
+
+```bash
+# 402호에서 501호로 이동, target floor는 room_501 기준 5층으로 자동 추론
+ros2 run mission_manager send_mission \
+  --pickup-location room_402 \
+  --delivery-location room_501 \
+  --object box
+
+# 402호에서 같은 4층의 401호로 이동, 엘리베이터 step 자동 skip
+ros2 run mission_manager send_mission \
+  --pickup-location room_402 \
+  --delivery-location room_401 \
+  --object box
+```
+
 상태 확인:
 
 ```bash
@@ -181,6 +209,11 @@ ros2 topic echo /mission/status
 ## GUI 관제 실행
 
 미션 실행, 취소, `/mission/status`, `/arm_board/*` 서비스, `/arm_board/status_log`, `/joint_states`를 브라우저에서 확인한다.
+GUI backend는 Flask를 사용한다. 실행 환경에 Flask가 없으면 먼저 설치한다.
+
+```bash
+sudo apt install python3-flask
+```
 
 ```bash
 cd ~/vicpinky_server_ws
@@ -413,7 +446,7 @@ sudo ip link set up vcan0
 - enable 안 됨
 - homing 안 됨
 - error 또는 ESTOP 상태
-- `/joint_states` commanded estimate가 아직 유효하지 않음
+- `/joint_states` 기준 현재 위치가 아직 유효하지 않음
 
 확인 순서:
 

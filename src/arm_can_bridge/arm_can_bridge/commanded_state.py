@@ -24,10 +24,12 @@ class ScheduledSegment:
 
 class CommandedStateEstimator:
     """
-    Estimate joint positions from the commanded trajectory.
+    Keep the best available host-side joint position for one controller.
 
-    This is not encoder feedback. It mirrors the commands sent to Board1 and
+    For boards without actual feedback, it mirrors scheduled commands and
     keeps the last commanded target after the trajectory time elapses.
+    Actual feedback handlers may overwrite positions when hardware reports
+    measured positions.
     """
 
     def __init__(

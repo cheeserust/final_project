@@ -17,23 +17,30 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
+from .board3_feedback import Board3PositionFeedbackAssembler
 from .board_state import MultiBoardStateTracker
 from .can_protocol import (
     ALL_MOTORS,
     BOARD3_SERVO_COUNT,
+    Board3FeedbackMotorStatus,
     BOARD_ID_ALL,
     BOARD_ID_BOARD1,
     BOARD_ID_BOARD2,
     BOARD_ID_BOARD3,
+    BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID,
     BOARD_ID_BY_STATUS_CAN_ID,
-    BoardError,
     BoardState,
+    CAN_ID_BOARD3_POSITION_FEEDBACK,
     CanFrame,
+    error_name_for_board,
+    MotorPositionFeedback,
     pack_clear_error,
     pack_enable,
     pack_estop,
     pack_homing,
-    STATUS_CAN_IDS,
+    RECEIVE_CAN_IDS,
+    unpack_board3_position_feedback,
+    unpack_motor_position_feedback,
     unpack_status,
 )
 from .commanded_state import CommandedStateEstimator
@@ -56,6 +63,8 @@ class TrajectoryControllerContext:
     label: str
     action_name: str
     joint_names: list[str]
+    board_ids: list[int]
+    motor_ids: list[int]
     home_positions_rad: list[float]
     board_state: MultiBoardStateTracker
     commanded_state: CommandedStateEstimator
@@ -83,6 +92,13 @@ class ArmCanBridgeNode(Node):
             int(self.get_parameter('control_wait_timeout_ms').value)
             / 1000.0
         )
+        self._board3_feedback = Board3PositionFeedbackAssembler()
+        self._arm_feedback_lock = threading.RLock()
+        self._arm_feedback_positions_rad: list[float | None] = []
+        self._arm_feedback_joint_by_board_motor: dict[
+            tuple[int, int],
+            int,
+        ] = {}
 
         self._status_publisher = self.create_publisher(
             String,
@@ -92,11 +108,10 @@ class ArmCanBridgeNode(Node):
 
         self._transport = SocketCanTransport(
             interface_name=self._can_interface,
-            receive_ids=STATUS_CAN_IDS,
+            receive_ids=RECEIVE_CAN_IDS,
             frame_callback=self._handle_can_frame,
             error_callback=self._handle_transport_error,
         )
-        self._transport.open()
 
         self._arm_controller = self._create_controller_context(
             label='arm',
@@ -123,6 +138,8 @@ class ArmCanBridgeNode(Node):
             self._gripper_controller,
         )
         self._validate_combined_joint_names()
+        self._configure_arm_position_feedback()
+        self._transport.open()
 
         self._services = [
             self.create_service(
@@ -264,14 +281,14 @@ class ArmCanBridgeNode(Node):
         self.declare_parameter(
             'arm_board_ids',
             [
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
                 BOARD_ID_BOARD2,
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
             ],
         )
-        self.declare_parameter('arm_motor_ids', [0, 1, 2, 3, 0])
+        self.declare_parameter('arm_motor_ids', [0, 0, 1, 2, 3])
         self.declare_parameter('arm_min_positions_rad', [
             -1.57079633,
             -1.57079633,
@@ -429,6 +446,8 @@ class ArmCanBridgeNode(Node):
             label=label,
             action_name=str(self.get_parameter(action_name_param).value),
             joint_names=joint_names,
+            board_ids=board_ids,
+            motor_ids=motor_ids,
             home_positions_rad=home_positions_rad,
             board_state=board_state,
             commanded_state=commanded_state,
@@ -504,6 +523,24 @@ class ArmCanBridgeNode(Node):
                 'Arm and gripper joint names must not overlap'
             )
 
+    def _configure_arm_position_feedback(self) -> None:
+        mapping = {}
+        for joint_index, (board_id, motor_id) in enumerate(
+            zip(
+                self._arm_controller.board_ids,
+                self._arm_controller.motor_ids,
+            )
+        ):
+            if board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
+                mapping[(int(board_id), int(motor_id))] = joint_index
+
+        with self._arm_feedback_lock:
+            self._arm_feedback_positions_rad = [
+                None
+                for _ in self._arm_controller.joint_names
+            ]
+            self._arm_feedback_joint_by_board_motor = mapping
+
     def _list_parameter(
         self,
         name: str,
@@ -513,6 +550,17 @@ class ArmCanBridgeNode(Node):
         return [cast(item) for item in value]
 
     def _handle_can_frame(self, frame: CanFrame) -> None:
+        position_board_id = BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID.get(
+            frame.can_id
+        )
+        if position_board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
+            self._handle_motor_position_feedback(frame, position_board_id)
+            return
+
+        if frame.can_id == CAN_ID_BOARD3_POSITION_FEEDBACK:
+            self._handle_board3_position_feedback(frame)
+            return
+
         board_id = BOARD_ID_BY_STATUS_CAN_ID.get(frame.can_id)
         if board_id is None:
             return
@@ -526,10 +574,120 @@ class ArmCanBridgeNode(Node):
                 f'Failed to decode board {board_id} status: {exc}'
             )
 
+    def _handle_motor_position_feedback(
+        self,
+        frame: CanFrame,
+        board_id: int,
+    ) -> None:
+        try:
+            feedback = unpack_motor_position_feedback(
+                frame.data,
+                board_id=board_id,
+            )
+
+            if not feedback.position_valid:
+                return
+
+            self._apply_arm_position_feedback(feedback)
+
+            if feedback.error_code:
+                self.get_logger().warning(
+                    'Motor position feedback reports error: '
+                    f'board={feedback.board_id}, '
+                    f'motor={feedback.motor_id}, '
+                    f'error={feedback.error_code}, '
+                    f'flags=0x{feedback.flags:02X}, '
+                    f'seq={feedback.sequence}'
+                )
+        except (ValueError, TypeError, IndexError) as exc:
+            self.get_logger().error(
+                f'Failed to decode board {board_id} position feedback: {exc}'
+            )
+
+    def _apply_arm_position_feedback(
+        self,
+        feedback: MotorPositionFeedback,
+    ) -> None:
+        key = (feedback.board_id, feedback.motor_id)
+
+        with self._arm_feedback_lock:
+            joint_index = self._arm_feedback_joint_by_board_motor.get(key)
+            if joint_index is None:
+                return
+
+            positions = list(self._arm_feedback_positions_rad)
+            if any(value is None for value in positions):
+                if self._arm_controller.commanded_state.is_valid():
+                    positions = list(
+                        self._arm_controller.commanded_state.positions()
+                    )
+
+            positions[joint_index] = feedback.position_rad
+            self._arm_feedback_positions_rad = positions
+
+            if any(value is None for value in positions):
+                return
+
+            complete_positions = [
+                float(value)
+                for value in positions
+                if value is not None
+            ]
+
+            self._arm_controller.commanded_state.mark_positions_valid(
+                complete_positions
+            )
+            self._arm_controller.board_state.mark_commanded_position_valid()
+
+    def _handle_board3_position_feedback(self, frame: CanFrame) -> None:
+        try:
+            group = unpack_board3_position_feedback(frame.data)
+            snapshot = self._board3_feedback.update(group)
+            if snapshot is None:
+                return
+
+            self._apply_board3_position_feedback(snapshot.positions_rad)
+
+            if snapshot.fault_groups or any(
+                status == Board3FeedbackMotorStatus.ERROR
+                for status in snapshot.status_codes
+            ):
+                self.get_logger().warning(
+                    'Board3 position feedback reports fault: '
+                    f'groups={snapshot.fault_groups}, '
+                    f'status={snapshot.status_codes}, '
+                    f'flags={snapshot.raw_flags}'
+                )
+        except (ValueError, TypeError, IndexError) as exc:
+            self.get_logger().error(
+                f'Failed to decode Board3 position feedback: {exc}'
+            )
+
+    def _apply_board3_position_feedback(
+        self,
+        positions_by_motor_rad: Sequence[float],
+    ) -> None:
+        joint_positions = []
+
+        for board_id, motor_id in zip(
+            self._gripper_controller.board_ids,
+            self._gripper_controller.motor_ids,
+        ):
+            if board_id != BOARD_ID_BOARD3:
+                return
+
+            joint_positions.append(positions_by_motor_rad[int(motor_id)])
+
+        self._gripper_controller.commanded_state.mark_positions_valid(
+            joint_positions
+        )
+        self._gripper_controller.board_state.mark_commanded_position_valid()
+
     def _handle_transport_error(self, error: Exception) -> None:
         self.get_logger().error(f'SocketCAN transport error: {error}')
         self._reset_all_board_states()
         self._invalidate_all_commanded_positions()
+        self._board3_feedback.reset()
 
     def _send_frame(self, frame: CanFrame) -> None:
         self._transport.send_frame(frame)
@@ -654,6 +812,7 @@ class ArmCanBridgeNode(Node):
                 and not self._any_board_state_stale()
                 and self._all_board_states_enabled()
                 and self._all_board_states_ready()
+                and self._all_board_trajectories_complete()
                 and not self._any_board_state_error()
             ),
             timeout_s=self._control_wait_timeout_s,
@@ -938,6 +1097,7 @@ class ArmCanBridgeNode(Node):
         for controller in self._controllers:
             controller.board_state.invalidate_commanded_position()
             controller.commanded_state.reset_invalid()
+        self._reset_arm_position_feedback()
 
     def _mark_all_commanded_positions_valid(self) -> None:
         for controller in self._controllers:
@@ -945,6 +1105,24 @@ class ArmCanBridgeNode(Node):
             controller.commanded_state.mark_positions_valid(
                 controller.home_positions_rad
             )
+        self._mark_arm_feedback_positions(self._arm_controller.home_positions_rad)
+
+    def _reset_arm_position_feedback(self) -> None:
+        with self._arm_feedback_lock:
+            self._arm_feedback_positions_rad = [
+                None
+                for _ in self._arm_controller.joint_names
+            ]
+
+    def _mark_arm_feedback_positions(
+        self,
+        positions_rad: Sequence[float],
+    ) -> None:
+        with self._arm_feedback_lock:
+            self._arm_feedback_positions_rad = [
+                float(value)
+                for value in positions_rad
+            ]
 
     def _all_board_states_have_status(self) -> bool:
         return all(
@@ -979,6 +1157,12 @@ class ArmCanBridgeNode(Node):
     def _all_board_states_ready(self) -> bool:
         return all(
             controller.board_state.all_axes_homed()
+            for controller in self._controllers
+        )
+
+    def _all_board_trajectories_complete(self) -> bool:
+        return all(
+            controller.board_state.is_trajectory_complete()
             for controller in self._controllers
         )
 
@@ -1040,7 +1224,8 @@ class ArmCanBridgeNode(Node):
                 board_parts.append(
                     f'board{board_id}: '
                     f'state={self._state_name(status.state)}, '
-                    f'error={self._error_name(status.error_code)}, '
+                    f'error='
+                    f'{self._error_name(status.error_code, status.board_id)}, '
                     f'ready=0x{status.homing_done_bits:02X}, '
                     f'moving={status.moving_motor_id}, '
                     f'fault=0x{status.limit_status_bits:02X}, '
@@ -1078,11 +1263,8 @@ class ArmCanBridgeNode(Node):
             return f'UNKNOWN({value})'
 
     @staticmethod
-    def _error_name(value: int) -> str:
-        try:
-            return BoardError(value).name
-        except ValueError:
-            return f'UNKNOWN({value})'
+    def _error_name(value: int, board_id: int) -> str:
+        return error_name_for_board(value, board_id)
 
     def destroy_node(self) -> bool:
         """Close SocketCAN transport before destroying the ROS node."""

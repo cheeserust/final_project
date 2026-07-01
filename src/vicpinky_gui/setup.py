@@ -28,7 +28,7 @@ setup(
             glob('static/*'),
         ),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'Flask'],
     zip_safe=True,
     maintainer='sj',
     maintainer_email='seongjun000313@gmail.com',

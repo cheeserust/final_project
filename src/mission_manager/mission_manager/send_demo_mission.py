@@ -11,10 +11,10 @@ def main():
     기본 인자들을 넣어서 호출한다.
     """
     demo_args = [
-        '--mission-id', 'demo_001',
-        '--pickup-location', 'pickup_zone',
-        '--delivery-location', 'delivery_zone',
-        '--target-floor', '2',
+        '--mission-id', 'floor4_to_floor5_demo',
+        '--pickup-location', 'room_402',
+        '--delivery-location', 'room_501',
+        '--target-floor', '5',
         '--object', 'box',
     ]
 

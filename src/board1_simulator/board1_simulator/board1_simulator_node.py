@@ -7,6 +7,7 @@ import time
 import rclpy
 from rclpy.node import Node
 
+from arm_can_bridge.can_protocol import BOARD_ID_BOARD1
 from arm_can_bridge.can_protocol import CAN_ID_BOARD2_POSITION_COMMAND
 from arm_can_bridge.can_protocol import CAN_ID_BOARD3_SERVO_COMMAND
 from arm_can_bridge.socketcan_transport import SocketCanTransport
@@ -25,6 +26,7 @@ class Board1SimulatorNode(Node):
 
         self.declare_parameter('can_interface', 'vcan0')
         self.declare_parameter('status_period_ms', 100)
+        self.declare_parameter('feedback_period_ms', 20)
         self.declare_parameter('tick_period_ms', 10)
         self.declare_parameter('homing_duration_ms', 500)
         self.declare_parameter('queue_capacity', 32)
@@ -36,6 +38,11 @@ class Board1SimulatorNode(Node):
         )
         status_period_ms = (
             self.get_parameter('status_period_ms')
+            .get_parameter_value()
+            .integer_value
+        )
+        feedback_period_ms = (
+            self.get_parameter('feedback_period_ms')
             .get_parameter_value()
             .integer_value
         )
@@ -95,6 +102,10 @@ class Board1SimulatorNode(Node):
             float(status_period_ms) / 1000.0,
             self._send_status,
         )
+        self._feedback_timer = self.create_timer(
+            float(feedback_period_ms) / 1000.0,
+            self._send_position_feedback,
+        )
 
         self.get_logger().info(
             f'Board1/Board2/Board3 simulator started on '
@@ -129,6 +140,14 @@ class Board1SimulatorNode(Node):
 
         frame = model.build_status_frame()
         self._transport.send_frame(frame)
+
+    def _send_position_feedback(self) -> None:
+        for model in self._models:
+            max_frames = 2 if model.board_id == BOARD_ID_BOARD1 else None
+            for feedback_frame in model.build_position_feedback_frames(
+                max_frames=max_frames,
+            ):
+                self._transport.send_frame(feedback_frame)
 
     def destroy_node(self) -> bool:
         """Close the SocketCAN transport before destroying the node."""

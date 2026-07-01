@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 
 import rclpy
@@ -6,9 +7,33 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 
 from vicpinky_interfaces.action import ExecuteMission
+import yaml
+
+
+DEFAULT_FLOOR = 4
+DEFAULT_PICKUP_LOCATION = 'room_402'
+DEFAULT_DELIVERY_LOCATION = 'room_501'
+
+FALLBACK_LOCATION_FLOORS = {
+    'dock': 4,
+    'dock_4f': 4,
+    'home': 4,
+    'home_4f': 4,
+    'object': 4,
+    'room_401': 4,
+    'room_402': 4,
+    'elevator_front_4f': 4,
+    'pickup_zone': 4,
+    'dock_5f': 5,
+    'object_place': 5,
+    'object_place_5f': 5,
+    'room_501': 5,
+    'elevator_front_5f': 5,
+}
 
 
 class MissionClient(Node):
+
     def __init__(self):
         super().__init__('mission_client')
 
@@ -128,6 +153,67 @@ class MissionClient(Node):
         return 2
 
 
+def _locations_file_path() -> str:
+    try:
+        from ament_index_python.packages import get_package_share_directory
+
+        package_share = get_package_share_directory('mission_manager')
+        return os.path.join(package_share, 'config', 'locations.yaml')
+    except Exception:
+        package_root = os.path.dirname(os.path.dirname(__file__))
+        return os.path.join(package_root, 'config', 'locations.yaml')
+
+
+def _load_location_floors() -> dict[str, int]:
+    floors = dict(FALLBACK_LOCATION_FLOORS)
+    path = _locations_file_path()
+
+    try:
+        with open(path, 'r', encoding='utf-8') as stream:
+            data = yaml.safe_load(stream)
+    except Exception:
+        return floors
+
+    locations = data.get('locations', {}) if isinstance(data, dict) else {}
+    if not isinstance(locations, dict):
+        return floors
+
+    for name, location in locations.items():
+        if not isinstance(location, dict):
+            continue
+
+        if 'pose' not in location:
+            continue
+
+        floor = location.get('floor')
+        if isinstance(floor, int):
+            floors[str(name)] = floor
+        elif isinstance(floor, str) and floor.isdigit():
+            floors[str(name)] = int(floor)
+
+    return floors
+
+
+def _infer_target_floor(
+    delivery_location: str,
+    target_floor: int | None,
+    location_floors: dict[str, int],
+) -> int:
+    if target_floor is not None:
+        return int(target_floor)
+
+    if delivery_location in location_floors:
+        return location_floors[delivery_location]
+
+    return DEFAULT_FLOOR
+
+
+def _print_locations(location_floors: dict[str, int]) -> None:
+    print('Available mission locations:')
+    for name in sorted(location_floors):
+        print(f'  {name}: floor {location_floors[name]}')
+
+
 def build_argument_parser():
     parser = argparse.ArgumentParser(
         description='Send a delivery mission goal to /mission/execute'
@@ -141,21 +227,24 @@ def build_argument_parser():
 
     parser.add_argument(
         '--pickup-location',
-        default='pickup_zone',
+        default=DEFAULT_PICKUP_LOCATION,
         help='Pickup location name used by mission_flow.yaml'
     )
 
     parser.add_argument(
         '--delivery-location',
-        default='delivery_zone',
+        default=DEFAULT_DELIVERY_LOCATION,
         help='Delivery location name used by mission_flow.yaml'
     )
 
     parser.add_argument(
         '--target-floor',
         type=int,
-        default=2,
-        help='Target floor number'
+        default=None,
+        help=(
+            'Target floor number. If omitted, it is inferred from '
+            'the delivery location; unknown locations default to floor 4.'
+        )
     )
 
     parser.add_argument(
@@ -172,6 +261,12 @@ def build_argument_parser():
         help='Timeout for waiting /mission/execute action server'
     )
 
+    parser.add_argument(
+        '--list-locations',
+        action='store_true',
+        help='Print configured location names and exit'
+    )
+
     return parser
 
 
@@ -182,6 +277,18 @@ def main(argv=None):
     # ROS2 실행 시 --ros-args 같은 ROS 전용 인자가 붙을 수 있기 때문이다.
     args, ros_args = parser.parse_known_args(argv)
 
+    location_floors = _load_location_floors()
+
+    if args.list_locations:
+        _print_locations(location_floors)
+        return 0
+
+    target_floor = _infer_target_floor(
+        delivery_location=args.delivery_location,
+        target_floor=args.target_floor,
+        location_floors=location_floors,
+    )
+
     rclpy.init(args=ros_args if ros_args else None)
 
     node = MissionClient()
@@ -191,7 +298,7 @@ def main(argv=None):
             mission_id=args.mission_id,
             pickup_location=args.pickup_location,
             delivery_location=args.delivery_location,
-            target_floor=args.target_floor,
+            target_floor=target_floor,
             object_label=args.object_label,
             wait_server_timeout_sec=args.wait_server_timeout_sec
         )

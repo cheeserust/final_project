@@ -5,17 +5,21 @@ import math
 from arm_can_bridge.can_protocol import (
     ALL_MOTORS,
     angle_raw_to_rad,
+    Board3FeedbackMotorStatus,
     BoardError,
     BoardState,
     build_control_byte,
     decode_control_byte,
     duration_ns_to_ticks,
+    error_name_for_board,
     pack_clear_error,
     pack_enable,
     pack_estop,
     pack_homing,
     pack_position_command,
     rad_to_angle_raw,
+    unpack_board3_position_feedback,
+    unpack_motor_position_feedback,
     unpack_status,
 )
 
@@ -32,6 +36,87 @@ def test_angle_conversion_uses_point_zero_one_degree_units():
         math.pi / 2.0,
         rel_tol=1e-9,
     )
+
+
+def test_board3_position_feedback_unpack_uses_int16_groups():
+    data = bytes([
+        0x02,
+        0xB8,
+        0x0B,
+        0xF2,
+        0xF9,
+        0x00,
+        0x00,
+        0x64,
+    ])
+
+    feedback = unpack_board3_position_feedback(data)
+
+    assert feedback.group_index == 2
+    assert feedback.motor_ids == (3, 4, 5)
+    assert feedback.positions_raw == (3000, -1550, 0)
+    assert math.isclose(feedback.positions_rad[0], math.pi / 6.0)
+    assert math.isclose(feedback.positions_rad[1], angle_raw_to_rad(-1550))
+    assert feedback.status_codes == (
+        Board3FeedbackMotorStatus.OK,
+        Board3FeedbackMotorStatus.MOVING,
+        Board3FeedbackMotorStatus.CONTACT_HOLD,
+    )
+    assert feedback.valid is True
+    assert feedback.fault is False
+    assert feedback.raw_flags == 0x64
+
+
+def test_board3_position_feedback_rejects_bad_payload():
+    with pytest.raises(ValueError, match='8 bytes'):
+        unpack_board3_position_feedback(bytes(7))
+
+    with pytest.raises(ValueError, match='1..3'):
+        unpack_board3_position_feedback(bytes([4, 0, 0, 0, 0, 0, 0, 0]))
+
+
+def test_motor_position_feedback_unpack_uses_int32_angle():
+    data = bytes([
+        0x02,
+        0x0F,
+        0xF2,
+        0xF9,
+        0xFF,
+        0xFF,
+        0x00,
+        0x2A,
+    ])
+
+    feedback = unpack_motor_position_feedback(data, board_id=1)
+
+    assert feedback.board_id == 1
+    assert feedback.motor_id == 2
+    assert feedback.flags == 0x0F
+    assert feedback.position_raw == -1550
+    assert math.isclose(feedback.position_rad, angle_raw_to_rad(-1550))
+    assert feedback.error_code == 0
+    assert feedback.sequence == 0x2A
+    assert feedback.position_valid is True
+    assert feedback.homed is True
+    assert feedback.moving is True
+    assert feedback.target_reached is True
+
+
+def test_motor_position_feedback_rejects_bad_payload():
+    with pytest.raises(ValueError, match='8 bytes'):
+        unpack_motor_position_feedback(bytes(7), board_id=1)
+
+    with pytest.raises(ValueError, match='invalid for board'):
+        unpack_motor_position_feedback(
+            bytes([4, 1, 0, 0, 0, 0, 0, 0]),
+            board_id=1,
+        )
+
+    with pytest.raises(ValueError, match='reserved flag'):
+        unpack_motor_position_feedback(
+            bytes([0, 0x10, 0, 0, 0, 0, 0, 0]),
+            board_id=2,
+        )
 
 
 def test_duration_rounds_up_to_five_millisecond_ticks():
@@ -121,17 +206,41 @@ def test_position_command_supports_negative_target():
 
 def test_control_commands_use_final_can_ids_and_payload_lengths():
     assert pack_estop().can_id == 0x001
-    assert pack_estop().data == bytes([ALL_MOTORS])
+    assert pack_estop().data == bytes.fromhex('0100000000000000')
 
     assert pack_enable(True).can_id == 0x010
-    assert pack_enable(True).data == bytes([ALL_MOTORS, 1])
-    assert pack_enable(False).data == bytes([ALL_MOTORS, 0])
+    assert pack_enable(True).data == bytes.fromhex('01FF000000000000')
+    assert pack_enable(False).data == bytes.fromhex('00FF000000000000')
 
     assert pack_homing().can_id == 0x020
-    assert pack_homing().data == bytes([ALL_MOTORS, ALL_MOTORS, 0])
+    assert pack_homing().data == bytes.fromhex('FFFF000000000000')
 
     assert pack_clear_error().can_id == 0x030
-    assert pack_clear_error().data == bytes([ALL_MOTORS, ALL_MOTORS])
+    assert pack_clear_error().data == bytes.fromhex('FFFF000000000000')
+
+    assert pack_homing(board_id=1).data == bytes.fromhex(
+        '01FF000000000000'
+    )
+    assert pack_homing(0, board_id=2).data == bytes.fromhex(
+        '0200000000000000'
+    )
+    assert pack_homing(board_id=3).data == bytes.fromhex(
+        '03FF000000000000'
+    )
+    assert pack_clear_error(0, board_id=2).data == bytes.fromhex(
+        '0200000000000000'
+    )
+    assert pack_clear_error(board_id=3).data == bytes.fromhex(
+        '03FF000000000000'
+    )
+
+
+def test_board_specific_error_names_match_integrated_protocol():
+    assert error_name_for_board(5, 1) == 'QUEUE_FULL'
+    assert error_name_for_board(5, 2) == 'QUEUE_FULL'
+    assert error_name_for_board(5, 3) == 'ERR_DURATION_MISMATCH'
+    assert error_name_for_board(9, 3) == 'ERR_ESTOP'
+    assert error_name_for_board(99, 3) == 'UNKNOWN(99)'
 
 
 def test_status_unpack_and_ready_properties():

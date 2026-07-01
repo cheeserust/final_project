@@ -1,5 +1,8 @@
 import os
 
+from ament_index_python.packages import (
+    get_package_share_directory,
+)
 import rclpy
 from rclpy.action import (
     ActionServer,
@@ -9,10 +12,6 @@ from rclpy.action import (
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-
-from ament_index_python.packages import (
-    get_package_share_directory,
-)
 
 from vicpinky_interfaces.action import ExecuteMission
 from vicpinky_interfaces.msg import MissionStatus
@@ -27,6 +26,7 @@ from .task_executor import TaskExecutor
 
 
 class MissionManager(Node):
+
     def __init__(self):
         super().__init__('mission_manager')
 
@@ -123,9 +123,7 @@ class MissionManager(Node):
         )
 
     def goal_callback(self, goal_request):
-        """
-        동시에 두 미션이 실행되지 않도록 새 Goal 수락 여부를 판단한다.
-        """
+        """동시에 두 미션이 실행되지 않도록 새 Goal 수락 여부를 판단한다."""
         if self.mission_active:
             self.get_logger().warning(
                 f'Rejecting mission "{goal_request.mission_id}": '

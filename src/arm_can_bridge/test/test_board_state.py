@@ -226,6 +226,21 @@ def test_board3_completion_uses_staging_status_fields():
     tracker.update_status(
         make_status(
             board_id=BOARD_ID_BOARD3,
+            state=BoardState.MOVING,
+            homing_done_bits=1,
+            moving_motor_id=0,
+            queue_free=BOARD3_SERVO_COUNT,
+            reserved=ALL_MOTORS,
+        ),
+        received_at=85.15,
+    )
+
+    assert tracker.is_trajectory_complete(now=85.16) is False
+    assert tracker.can_stream_slots(BOARD3_SERVO_COUNT, now=85.16) is False
+
+    tracker.update_status(
+        make_status(
+            board_id=BOARD_ID_BOARD3,
             state=BoardState.STAGING,
             homing_done_bits=1,
             moving_motor_id=3,

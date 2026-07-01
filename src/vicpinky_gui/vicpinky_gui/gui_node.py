@@ -6,19 +6,16 @@ from collections import deque
 from copy import deepcopy
 from datetime import datetime, timezone
 import errno
-import json
-import mimetypes
 import os
 from pathlib import Path
 import re
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import unquote, urlsplit
 
 from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
+from flask import Flask, jsonify, request, send_from_directory
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -29,6 +26,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from vicpinky_interfaces.action import ExecuteMission
 from vicpinky_interfaces.msg import MissionStatus
+from werkzeug.serving import make_server
 import yaml
 
 
@@ -50,169 +48,6 @@ STATUS_NAME_BY_CODE = {
     GoalStatus.STATUS_CANCELED: 'CANCELED',
     GoalStatus.STATUS_ABORTED: 'ABORTED',
 }
-
-
-class GuiHttpServer(ThreadingHTTPServer):
-    """Threading HTTP server with ROS node context attached."""
-
-    daemon_threads = True
-    allow_reuse_address = True
-
-
-class GuiRequestHandler(BaseHTTPRequestHandler):
-    """HTTP handler for static assets and JSON control endpoints."""
-
-    server_version = 'VicPinkyGui/0.1'
-
-    def do_GET(self) -> None:
-        """Serve static files and snapshot API requests."""
-        path = urlsplit(self.path).path
-
-        if path == '/api/snapshot':
-            self._send_json(self.gui_node.snapshot())
-            return
-
-        if path in ('', '/'):
-            self._serve_static_file('index.html')
-            return
-
-        if path.startswith('/static/'):
-            requested = unquote(path.removeprefix('/static/'))
-            self._serve_static_file(requested)
-            return
-
-        self._send_json(
-            {'ok': False, 'message': f'Not found: {path}'},
-            status_code=404,
-        )
-
-    def do_HEAD(self) -> None:
-        """Serve headers for static files."""
-        path = urlsplit(self.path).path
-
-        if path in ('', '/'):
-            self._serve_static_file('index.html', head_only=True)
-            return
-
-        if path.startswith('/static/'):
-            requested = unquote(path.removeprefix('/static/'))
-            self._serve_static_file(requested, head_only=True)
-            return
-
-        self.send_response(404)
-        self.end_headers()
-
-    def do_POST(self) -> None:
-        """Handle control requests."""
-        path = urlsplit(self.path).path
-        payload = self._read_json_body()
-
-        if path.startswith('/api/arm/'):
-            command = path.removeprefix('/api/arm/')
-            response = self.gui_node.call_arm_service(command)
-            self._send_json(
-                response,
-                status_code=200 if response.get('ok') else 503,
-            )
-            return
-
-        if path == '/api/mission/start':
-            response = self.gui_node.start_mission(payload)
-            status_code = 200 if response.get('ok') else response.get(
-                'status_code',
-                400,
-            )
-            self._send_json(response, status_code=status_code)
-            return
-
-        if path == '/api/mission/cancel':
-            response = self.gui_node.cancel_mission()
-            self._send_json(
-                response,
-                status_code=200 if response.get('ok') else 409,
-            )
-            return
-
-        self._send_json(
-            {'ok': False, 'message': f'Not found: {path}'},
-            status_code=404,
-        )
-
-    @property
-    def gui_node(self) -> 'VicPinkyGuiNode':
-        """Return the ROS node attached to the HTTP server."""
-        return self.server.gui_node
-
-    def log_message(self, format_: str, *args: Any) -> None:
-        """Route access logs through ROS debug logging."""
-        self.gui_node.get_logger().debug(format_ % args)
-
-    def _read_json_body(self) -> dict[str, Any]:
-        length = int(self.headers.get('content-length', '0') or 0)
-        if length <= 0:
-            return {}
-
-        raw_body = self.rfile.read(length)
-        try:
-            value = json.loads(raw_body.decode('utf-8'))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return {}
-
-        return value if isinstance(value, dict) else {}
-
-    def _serve_static_file(
-        self,
-        relative_name: str,
-        *,
-        head_only: bool = False,
-    ) -> None:
-        if not relative_name or '..' in Path(relative_name).parts:
-            self._send_json(
-                {'ok': False, 'message': 'Invalid static path'},
-                status_code=400,
-            )
-            return
-
-        static_dir = Path(self.server.static_dir)
-        relative_path = Path(relative_name)
-
-        if relative_path.is_absolute():
-            self._send_json(
-                {'ok': False, 'message': 'Invalid static path'},
-                status_code=400,
-            )
-            return
-
-        target = static_dir / relative_path
-
-        if not target.is_file():
-            self._send_json(
-                {'ok': False, 'message': f'Static file not found: {relative_name}'},
-                status_code=404,
-            )
-            return
-
-        content_type = mimetypes.guess_type(str(target))[0]
-        if content_type is None:
-            content_type = 'application/octet-stream'
-
-        data = target.read_bytes()
-        self.send_response(200)
-        self.send_header('Content-Type', content_type)
-        self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        if not head_only:
-            self.wfile.write(data)
-
-    def _send_json(self, value: dict[str, Any], *, status_code: int = 200) -> None:
-        data = json.dumps(value, ensure_ascii=False).encode('utf-8')
-        self.send_response(status_code)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', str(len(data)))
-        self.send_header('Cache-Control', 'no-store')
-        self.end_headers()
-        self.wfile.write(data)
 
 
 class VicPinkyGuiNode(Node):
@@ -297,7 +132,8 @@ class VicPinkyGuiNode(Node):
             callback_group=self._callback_group,
         )
 
-        self._http_server: GuiHttpServer | None = None
+        self._flask_app: Flask | None = None
+        self._http_server: Any | None = None
         self._http_thread: threading.Thread | None = None
         self._start_http_server()
 
@@ -325,10 +161,10 @@ class VicPinkyGuiNode(Node):
 
     def _start_http_server(self) -> None:
         static_dir = self._static_dir()
-        server = self._bind_http_server()
-        server.gui_node = self
-        server.static_dir = str(static_dir)
+        app = self._create_flask_app(static_dir)
+        server = self._bind_http_server(app)
 
+        self._flask_app = app
         self._http_server = server
         self._http_thread = threading.Thread(
             target=server.serve_forever,
@@ -340,12 +176,66 @@ class VicPinkyGuiNode(Node):
         bind_host = self._host
         if bind_host in ('0.0.0.0', '::'):
             bind_host = 'localhost'
-        actual_port = server.server_address[1]
+        actual_port = server.socket.getsockname()[1]
         self.get_logger().info(
             f'VicPinky GUI ready: http://{bind_host}:{actual_port}'
         )
 
-    def _bind_http_server(self) -> GuiHttpServer:
+    def _create_flask_app(self, static_dir: Path) -> Flask:
+        app = Flask(
+            'vicpinky_gui',
+            static_folder=None,
+        )
+        app.json.ensure_ascii = False
+
+        @app.after_request
+        def add_no_store_headers(response):
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+
+        @app.get('/')
+        def index():
+            return send_from_directory(static_dir, 'index.html')
+
+        @app.get('/static/<path:filename>')
+        def static_file(filename: str):
+            return send_from_directory(static_dir, filename)
+
+        @app.get('/api/snapshot')
+        def api_snapshot():
+            return jsonify(self.snapshot())
+
+        @app.post('/api/arm/<command>')
+        def api_arm_command(command: str):
+            response = self.call_arm_service(command)
+            return jsonify(response), 200 if response.get('ok') else 503
+
+        @app.post('/api/mission/start')
+        def api_mission_start():
+            payload = request.get_json(silent=True)
+            if not isinstance(payload, dict):
+                payload = {}
+            response = self.start_mission(payload)
+            status_code = 200 if response.get('ok') else int(
+                response.get('status_code', 400)
+            )
+            return jsonify(response), status_code
+
+        @app.post('/api/mission/cancel')
+        def api_mission_cancel():
+            response = self.cancel_mission()
+            return jsonify(response), 200 if response.get('ok') else 409
+
+        @app.errorhandler(404)
+        def api_not_found(_error):
+            return jsonify({
+                'ok': False,
+                'message': f'Not found: {request.path}',
+            }), 404
+
+        return app
+
+    def _bind_http_server(self, app: Flask) -> Any:
         if self._port == 0:
             candidate_ports = [0]
         elif self._auto_port:
@@ -358,9 +248,11 @@ class VicPinkyGuiNode(Node):
 
         for candidate_port in candidate_ports:
             try:
-                server = GuiHttpServer(
-                    (self._host, candidate_port),
-                    GuiRequestHandler,
+                server = make_server(
+                    self._host,
+                    candidate_port,
+                    app,
+                    threaded=True,
                 )
             except OSError as exc:
                 last_error = exc
@@ -417,6 +309,8 @@ class VicPinkyGuiNode(Node):
                 for name, value in raw_locations.items():
                     item = {'name': str(name)}
                     if isinstance(value, dict):
+                        if 'pose' not in value:
+                            continue
                         item.update({
                             'type': value.get('type', ''),
                             'floor': value.get('floor', ''),
@@ -451,9 +345,9 @@ class VicPinkyGuiNode(Node):
             'mission_steps': mission_steps,
             'default_goal': {
                 'mission_id': self._default_mission_id(),
-                'pickup_location': 'pickup_zone',
-                'delivery_location': 'delivery_zone',
-                'target_floor': 2,
+                'pickup_location': 'room_402',
+                'delivery_location': 'room_501',
+                'target_floor': 5,
                 'object_label': 'box',
             },
             'arm_commands': list(ARM_COMMANDS.keys()),

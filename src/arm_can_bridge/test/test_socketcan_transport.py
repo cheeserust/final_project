@@ -23,7 +23,7 @@ import pytest
 
 
 def test_estop_encodes_target_board_payload():
-    """Verify that ESTOP carries the target board id payload."""
+    """Verify that ESTOP carries the final fixed eight-byte payload."""
     encoded = encode_socketcan_frame(pack_estop())
     raw_can_id, data_length, payload = struct.unpack(
         CAN_FRAME_FORMAT,
@@ -32,9 +32,8 @@ def test_estop_encodes_target_board_payload():
 
     assert len(encoded) == CAN_FRAME_SIZE
     assert raw_can_id == 0x001
-    assert data_length == 1
-    assert payload[:1] == b'\xFF'
-    assert payload[1:] == bytes(7)
+    assert data_length == 8
+    assert payload == bytes.fromhex('0100000000000000')
 
 
 def test_position_command_round_trip_preserves_all_bytes():

@@ -133,10 +133,7 @@ class MissionFlowLoader:
         value: Any,
         context_values: Dict[str, Any],
     ) -> Any:
-        """
-        "$target_floor" 형태의 값을 MissionContext의 실제 값으로 바꾼다.
-        list와 dict 내부의 값도 재귀적으로 처리한다.
-        """
+        """Replace MissionContext variables recursively."""
         if isinstance(value, str) and value.startswith('$'):
             key = value[1:]
 
@@ -198,17 +195,59 @@ class MissionFlowLoader:
             )
         )
 
+    def _resolve_location_floor(
+        self,
+        location_name: str,
+        context_values: Dict[str, Any],
+    ) -> int:
+        if location_name not in self._locations:
+            raise MissionConfigError(f'Unknown location "{location_name}"')
+
+        location = self._locations[location_name]
+        if not isinstance(location, dict):
+            raise MissionConfigError(
+                f'locations.{location_name} must be a mapping'
+            )
+
+        return int(
+            self._resolve_value(
+                location.get('floor', -1),
+                context_values,
+            )
+        )
+
     def build_plan(
         self,
         context: MissionContext,
     ) -> List[MissionStep]:
-        """
-        세 YAML 파일을 합쳐 실행 가능한 MissionStep 목록을 만든다.
-        """
+        """세 YAML 파일을 합쳐 실행 가능한 MissionStep 목록을 만든다."""
         context_values = self._context_values(context)
+        pickup_floor = self._resolve_location_floor(
+            context.pickup_location,
+            context_values,
+        )
+        context_values['pickup_floor'] = pickup_floor
+        context_values.update({
+            'pickup_elevator_front_location': (
+                f'elevator_front_{pickup_floor}f'
+            ),
+            'pickup_elevator_panel_location': (
+                f'elevator_panel_{pickup_floor}f'
+            ),
+            'pickup_elevator_call_button_location': (
+                f'elevator_call_button_{pickup_floor}f'
+            ),
+            'pickup_door_center_location': f'door_center_{pickup_floor}f',
+        })
         plan: List[MissionStep] = []
 
         for index, raw_step in enumerate(self._raw_steps):
+            skip_if_same_floor = bool(
+                raw_step.get('skip_if_same_floor', False)
+            )
+            if skip_if_same_floor and context.target_floor == pickup_floor:
+                continue
+
             state = str(raw_step['state'])
             task_profile = str(raw_step['task'])
 

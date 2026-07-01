@@ -1,5 +1,5 @@
 mission:
-  name: elevator_delivery_demo
+  name: dock_object_room_delivery
 
   steps:
     - state: GO_TO_PICKUP_ZONE
@@ -14,23 +14,27 @@ mission:
 
     - state: GO_TO_ELEVATOR_STAGING
       task: go_to
-      target: elevator_staging
-      location: elevator_staging_1f
+      target: "$pickup_elevator_front_location"
+      location: "$pickup_elevator_front_location"
+      skip_if_same_floor: true
 
     - state: DOCK_TO_OUTER_PANEL
       task: dock_to_marker
-      target: outer_panel
-      location: outer_panel_1f
+      target: "$pickup_elevator_panel_location"
+      location: "$pickup_elevator_panel_location"
+      skip_if_same_floor: true
 
     - state: PRESS_CALL_BUTTON
       task: press_button
-      target: call_button
-      location: call_button_1f
+      target: "$pickup_elevator_call_button_location"
+      location: "$pickup_elevator_call_button_location"
+      skip_if_same_floor: true
 
     - state: RIDE_ELEVATOR
       task: elevator_ride
       target: elevator_ride
       location: target_floor_marker
+      skip_if_same_floor: true
       extra:
         fsm_states:
           - WAIT_BOARD
@@ -38,7 +42,7 @@ mission:
           - RIDING
           - EXITING
           - DONE
-        boarding_location: door_center_1f
+        boarding_location: "$pickup_door_center_location"
         exit_location: target_floor_exit
 
     - state: GO_TO_DELIVERY_ZONE

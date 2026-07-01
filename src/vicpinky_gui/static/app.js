@@ -73,8 +73,8 @@ const applyConfig = (config) => {
   const options = locations.length
     ? locations
     : [
-        { name: defaults.pickup_location || "pickup_zone" },
-        { name: defaults.delivery_location || "delivery_zone" },
+        { name: defaults.pickup_location || "room_402" },
+        { name: defaults.delivery_location || "room_501" },
       ];
 
   for (const select of [pickup, delivery]) {
@@ -90,9 +90,9 @@ const applyConfig = (config) => {
 
   $("missionId").value = defaults.mission_id || "";
   $("objectLabel").value = defaults.object_label || "box";
-  $("targetFloor").value = defaults.target_floor ?? 2;
-  pickup.value = defaults.pickup_location || "pickup_zone";
-  delivery.value = defaults.delivery_location || "delivery_zone";
+  $("targetFloor").value = defaults.target_floor ?? 5;
+  pickup.value = defaults.pickup_location || "room_402";
+  delivery.value = defaults.delivery_location || "room_501";
 
   renderFlow(config.mission_steps || []);
   state.configApplied = true;

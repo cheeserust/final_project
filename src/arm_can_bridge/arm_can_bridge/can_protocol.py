@@ -21,6 +21,10 @@ CAN_ID_BOARD1_STATUS = 0x201
 CAN_ID_BOARD2_STATUS = 0x202
 CAN_ID_BOARD3_STATUS = 0x203
 
+CAN_ID_BOARD1_POSITION_FEEDBACK = 0x301
+CAN_ID_BOARD2_POSITION_FEEDBACK = 0x302
+CAN_ID_BOARD3_POSITION_FEEDBACK = 0x303
+
 # Backward-compatible aliases for Board1-only callers and tests.
 CAN_ID_POSITION_COMMAND = CAN_ID_BOARD1_POSITION_COMMAND
 CAN_ID_STATUS = CAN_ID_BOARD1_STATUS
@@ -28,6 +32,7 @@ CAN_ID_STATUS = CAN_ID_BOARD1_STATUS
 BOARD_ID_BOARD1 = 1
 BOARD_ID_BOARD2 = 2
 BOARD_ID_BOARD3 = 3
+BOARD_ID_ALL_LEGACY = 0x00
 BOARD_ID_ALL = 0xFF
 
 BOARD1_MOTOR_COUNT = 4
@@ -73,6 +78,19 @@ BOARD_ID_BY_STATUS_CAN_ID = {
 }
 
 STATUS_CAN_IDS = tuple(STATUS_CAN_ID_BY_BOARD_ID.values())
+POSITION_FEEDBACK_CAN_ID_BY_BOARD_ID = {
+    BOARD_ID_BOARD1: CAN_ID_BOARD1_POSITION_FEEDBACK,
+    BOARD_ID_BOARD2: CAN_ID_BOARD2_POSITION_FEEDBACK,
+    BOARD_ID_BOARD3: CAN_ID_BOARD3_POSITION_FEEDBACK,
+}
+BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID = {
+    can_id: board_id
+    for board_id, can_id in POSITION_FEEDBACK_CAN_ID_BY_BOARD_ID.items()
+}
+POSITION_FEEDBACK_CAN_IDS = tuple(
+    POSITION_FEEDBACK_CAN_ID_BY_BOARD_ID.values()
+)
+RECEIVE_CAN_IDS = STATUS_CAN_IDS + POSITION_FEEDBACK_CAN_IDS
 
 
 class BoardState(IntEnum):
@@ -98,6 +116,41 @@ class BoardError(IntEnum):
     HOMING_FAIL = 4
     QUEUE_FULL = 5
     RESERVED = 6
+
+
+class Board3FeedbackMotorStatus(IntEnum):
+    """Per-motor status codes packed into Board3 0x303 Byte7."""
+
+    OK = 0
+    MOVING = 1
+    CONTACT_HOLD = 2
+    ERROR = 3
+
+
+BOARD3_ERROR_NAMES = {
+    0: 'ERR_NONE',
+    1: 'ERR_INVALID_CMD',
+    2: 'ERR_INVALID_MOTOR_ID',
+    3: 'ERR_DUPLICATE_MOTOR_ID',
+    4: 'ERR_STAGING_TIMEOUT',
+    5: 'ERR_DURATION_MISMATCH',
+    6: 'ERR_ANGLE_RANGE',
+    7: 'ERR_SERVO_COMM',
+    8: 'ERR_SERVO_FAULT',
+    9: 'ERR_ESTOP',
+    10: 'ERR_DISABLED',
+}
+
+
+def error_name_for_board(value: int, board_id: int) -> str:
+    """Return a protocol-aware error name for one board status value."""
+    if validate_board_id(board_id) == BOARD_ID_BOARD3:
+        return BOARD3_ERROR_NAMES.get(int(value), f'UNKNOWN({value})')
+
+    try:
+        return BoardError(int(value)).name
+    except ValueError:
+        return f'UNKNOWN({value})'
 
 
 @dataclass(frozen=True)
@@ -222,6 +275,53 @@ class BoardStatus:
         )
 
 
+@dataclass(frozen=True)
+class Board3PositionFeedbackGroup:
+    """Decoded one-third of Board3 actual position feedback CAN ID 0x303."""
+
+    group_index: int
+    motor_ids: tuple[int, ...]
+    positions_raw: tuple[int, ...]
+    positions_rad: tuple[float, ...]
+    status_codes: tuple[int, ...]
+    valid: bool
+    fault: bool
+    raw_flags: int
+
+
+@dataclass(frozen=True)
+class MotorPositionFeedback:
+    """Decoded actual-position feedback for Board1/2 CAN ID 0x301/0x302."""
+
+    board_id: int
+    motor_id: int
+    flags: int
+    position_raw: int
+    position_rad: float
+    error_code: int
+    sequence: int
+
+    @property
+    def position_valid(self) -> bool:
+        """Return whether the position field is valid."""
+        return bool(self.flags & 0x01)
+
+    @property
+    def homed(self) -> bool:
+        """Return whether this motor is homed or ready."""
+        return bool(self.flags & 0x02)
+
+    @property
+    def moving(self) -> bool:
+        """Return whether this motor is currently moving."""
+        return bool(self.flags & 0x04)
+
+    @property
+    def target_reached(self) -> bool:
+        """Return whether this motor reports target reached."""
+        return bool(self.flags & 0x08)
+
+
 def rad_to_angle_raw(radian: float) -> int:
     """Convert radians to signed 0.01-degree units."""
     if not math.isfinite(radian):
@@ -262,6 +362,7 @@ def validate_board_id(board_id: int, *, allow_all: bool = False) -> int:
     valid_ids = {BOARD_ID_BOARD1, BOARD_ID_BOARD2, BOARD_ID_BOARD3}
 
     if allow_all:
+        valid_ids.add(BOARD_ID_ALL_LEGACY)
         valid_ids.add(BOARD_ID_ALL)
 
     if normalized not in valid_ids:
@@ -297,6 +398,16 @@ def board_id_from_move_can_id(can_id: int) -> int:
         return BOARD_ID_BY_MOVE_CAN_ID[int(can_id)]
     except KeyError as exc:
         raise ValueError(f'Unsupported move CAN ID: {can_id:#x}') from exc
+
+
+def board_id_from_position_feedback_can_id(can_id: int) -> int:
+    """Return the board id that owns one position feedback CAN ID."""
+    try:
+        return BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID[int(can_id)]
+    except KeyError as exc:
+        raise ValueError(
+            f'Unsupported position feedback CAN ID: {can_id:#x}'
+        ) from exc
 
 
 def motor_count_for_board(board_id: int) -> int:
@@ -393,10 +504,21 @@ def pack_position_command(
     return CanFrame(move_can_id_for_board(normalized_board_id), data)
 
 
+def _reserved_payload(*values: int) -> bytes:
+    """Return an eight-byte command payload padded with reserved zeros."""
+    if len(values) > 8:
+        raise ValueError('Classic CAN command payload cannot exceed 8 bytes')
+    return bytes(int(value) & 0xFF for value in values) + bytes(
+        8 - len(values)
+    )
+
+
 def pack_estop(board_id: int = BOARD_ID_ALL) -> CanFrame:
-    """Pack an emergency-stop command with a target board id."""
-    normalized_board_id = validate_board_id(board_id, allow_all=True)
-    return CanFrame(CAN_ID_ESTOP, bytes([normalized_board_id]))
+    """Pack the broadcast emergency-stop command."""
+    # Byte 0 is an ESTOP request flag, not a target board id.  The argument is
+    # retained for compatibility with older call sites but is not encoded.
+    validate_board_id(board_id, allow_all=True)
+    return CanFrame(CAN_ID_ESTOP, _reserved_payload(1))
 
 
 def pack_enable(
@@ -407,7 +529,7 @@ def pack_enable(
     normalized_board_id = validate_board_id(board_id, allow_all=True)
     return CanFrame(
         CAN_ID_ENABLE,
-        bytes([normalized_board_id, 1 if enabled else 0]),
+        _reserved_payload(1 if enabled else 0, normalized_board_id),
     )
 
 
@@ -417,24 +539,26 @@ def pack_homing(
     *,
     board_id: int = BOARD_ID_ALL,
 ) -> CanFrame:
-    """Pack a homing command for Board1, Board2, or broadcast."""
+    """Pack a homing command for Board1, Board2, Board3, or broadcast."""
     normalized_board_id = validate_board_id(board_id, allow_all=True)
 
-    if normalized_board_id == BOARD_ID_BOARD3:
-        raise ValueError('Board3 does not support homing')
     if mode != 0:
         raise ValueError('Only homing mode 0 is supported')
     if motor_id != ALL_MOTORS:
-        if normalized_board_id == BOARD_ID_ALL:
-            valid_motor_count = max(BOARD1_MOTOR_COUNT, BOARD2_MOTOR_COUNT)
+        if normalized_board_id in (BOARD_ID_ALL_LEGACY, BOARD_ID_ALL):
+            raise ValueError(
+                'Broadcast homing must target all local motors'
+            )
+        if normalized_board_id == BOARD_ID_BOARD3:
+            raise ValueError('Board3 homing supports only all gripper motors')
         else:
             valid_motor_count = motor_count_for_board(normalized_board_id)
-        if not 0 <= int(motor_id) < valid_motor_count:
-            raise ValueError('Homing motor_id is invalid for board')
+            if not 0 <= int(motor_id) < valid_motor_count:
+                raise ValueError('Homing motor_id is invalid for board')
 
     return CanFrame(
         CAN_ID_HOMING,
-        bytes([normalized_board_id, int(motor_id), int(mode)]),
+        _reserved_payload(normalized_board_id, int(motor_id), int(mode)),
     )
 
 
@@ -447,20 +571,22 @@ def pack_clear_error(
     normalized_board_id = validate_board_id(board_id, allow_all=True)
 
     if motor_id != ALL_MOTORS:
-        if normalized_board_id == BOARD_ID_ALL:
-            valid_motor_count = max(
-                BOARD1_MOTOR_COUNT,
-                BOARD2_MOTOR_COUNT,
-                BOARD3_SERVO_COUNT,
+        if normalized_board_id in (BOARD_ID_ALL_LEGACY, BOARD_ID_ALL):
+            raise ValueError(
+                'Broadcast clear-error must target all local motors'
+            )
+        if normalized_board_id == BOARD_ID_BOARD3:
+            raise ValueError(
+                'Board3 clear-error supports only all gripper motors'
             )
         else:
             valid_motor_count = motor_count_for_board(normalized_board_id)
-        if not 0 <= int(motor_id) < valid_motor_count:
-            raise ValueError('Clear-error motor_id is invalid for board')
+            if not 0 <= int(motor_id) < valid_motor_count:
+                raise ValueError('Clear-error motor_id is invalid for board')
 
     return CanFrame(
         CAN_ID_CLEAR_ERROR,
-        bytes([normalized_board_id, int(motor_id)]),
+        _reserved_payload(normalized_board_id, int(motor_id)),
     )
 
 
@@ -487,4 +613,89 @@ def unpack_status(
         queue_free=values[5],
         enabled=bool(values[6]),
         reserved=values[7],
+    )
+
+
+def unpack_motor_position_feedback(
+    data: bytes,
+    *,
+    board_id: int,
+) -> MotorPositionFeedback:
+    """Decode one Board1/2 actual-position feedback payload."""
+    normalized_board_id = validate_board_id(board_id)
+    if normalized_board_id == BOARD_ID_BOARD3:
+        raise ValueError('Board3 position feedback uses compressed groups')
+
+    if len(data) != 8:
+        raise ValueError(
+            'Motor position feedback payload must contain 8 bytes'
+        )
+
+    motor_id = int(data[0])
+    if not 0 <= motor_id < motor_count_for_board(normalized_board_id):
+        raise ValueError(
+            f'motor_id {motor_id} is invalid for board {normalized_board_id}'
+        )
+
+    flags = int(data[1])
+    if flags & 0xF0:
+        raise ValueError(
+            f'Motor position feedback reserved flag bits set: {flags:#04x}'
+        )
+
+    position_raw = struct.unpack_from('<i', data, 2)[0]
+    return MotorPositionFeedback(
+        board_id=normalized_board_id,
+        motor_id=motor_id,
+        flags=flags,
+        position_raw=int(position_raw),
+        position_rad=angle_raw_to_rad(position_raw),
+        error_code=int(data[6]),
+        sequence=int(data[7]),
+    )
+
+
+def unpack_board3_position_feedback(
+    data: bytes,
+) -> Board3PositionFeedbackGroup:
+    """Decode one Board3 compressed actual-position feedback group."""
+    if len(data) != 8:
+        raise ValueError(
+            'Board3 position feedback payload must contain 8 bytes'
+        )
+
+    group_index = int(data[0])
+    if group_index not in (1, 2, 3):
+        raise ValueError(
+            f'Board3 position feedback group must be 1..3, '
+            f'got {group_index}'
+        )
+
+    raw_positions = tuple(
+        int(value)
+        for value in struct.unpack_from('<hhh', data, 1)
+    )
+    positions_rad = tuple(
+        angle_raw_to_rad(value)
+        for value in raw_positions
+    )
+
+    raw_flags = int(data[7])
+    status_codes = (
+        raw_flags & 0x03,
+        (raw_flags >> 2) & 0x03,
+        (raw_flags >> 4) & 0x03,
+    )
+    first_motor_id = (group_index - 1) * 3
+    motor_ids = tuple(range(first_motor_id, first_motor_id + 3))
+
+    return Board3PositionFeedbackGroup(
+        group_index=group_index,
+        motor_ids=motor_ids,
+        positions_raw=raw_positions,
+        positions_rad=positions_rad,
+        status_codes=status_codes,
+        valid=bool(raw_flags & 0x40),
+        fault=bool(raw_flags & 0x80),
+        raw_flags=raw_flags,
     )

@@ -314,8 +314,14 @@ class BoardStateTracker:
             if status is None or self.is_status_stale(now=now):
                 return False
 
+            allowed_states = (
+                (BoardStateCode.IDLE,)
+                if self._board_id == BOARD_ID_BOARD3
+                else (BoardStateCode.IDLE, BoardStateCode.MOVING)
+            )
+
             board_can_move = (
-                status.state in (BoardStateCode.IDLE, BoardStateCode.MOVING)
+                status.state in allowed_states
                 and status.error_code == BoardError.NONE
                 and status.enabled
                 and self._readiness_ok(status)

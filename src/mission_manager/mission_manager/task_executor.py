@@ -18,9 +18,7 @@ TaskFeedbackCallback = Callable[
 
 
 class TaskExecutor:
-    """
-    RunTask Action Server 하나를 안정적으로 호출하는 공통 실행기.
-    """
+    """RunTask Action Server 하나를 안정적으로 호출하는 공통 실행기."""
 
     def __init__(
         self,
@@ -73,7 +71,7 @@ class TaskExecutor:
         feedback_callback: Optional[TaskFeedbackCallback] = None,
     ) -> TaskExecutionResult:
         """
-        MissionStep 하나를 하위 RunTask Action Server에 전송한다.
+        Execute one MissionStep on a child RunTask Action Server.
 
         이 함수는 동기적으로 결과를 기다리지만,
         MissionManager는 MultiThreadedExecutor를 사용하므로

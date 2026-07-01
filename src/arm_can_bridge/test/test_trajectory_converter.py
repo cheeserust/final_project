@@ -115,8 +115,8 @@ def test_builds_board1_and_board2_frames_for_five_axis_arm():
             'arm_joint_3',
             'arm_joint_4',
         ),
-        board_ids=(1, 1, 1, 1, 2),
-        motor_ids=(0, 1, 2, 3, 0),
+        board_ids=(2, 1, 1, 1, 1),
+        motor_ids=(0, 0, 1, 2, 3),
         min_positions_rad=(-math.pi,) * 5,
         max_positions_rad=(math.pi,) * 5,
         speed_raw=0,
@@ -151,18 +151,18 @@ def test_builds_board1_and_board2_frames_for_five_axis_arm():
 
     assert len(batches) == 1
     assert [frame.can_id for frame in batches[0].frames] == [
-        0x101,
-        0x101,
-        0x101,
-        0x101,
         0x102,
+        0x101,
+        0x101,
+        0x101,
+        0x101,
     ]
     assert [frame.data[0] for frame in batches[0].frames] == [
+        0x80,
         0x80,
         0x81,
         0x82,
         0x83,
-        0x80,
     ]
     assert batches[0].queue_slots_by_board == {1: 4, 2: 1}
 
@@ -186,8 +186,8 @@ def test_builds_board3_frames_for_integrated_gripper():
     )
     converter = ArmTrajectoryConverter(
         joint_names=joint_names,
-        board_ids=(1, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3),
-        motor_ids=(0, 1, 2, 3, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8),
+        board_ids=(2, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3),
+        motor_ids=(0, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 8),
         min_positions_rad=(-math.pi,) * len(joint_names),
         max_positions_rad=(math.pi,) * len(joint_names),
         speed_raw=0,
@@ -225,11 +225,11 @@ def test_builds_board3_frames_for_integrated_gripper():
 
     assert len(batches) == 1
     assert [frame.can_id for frame in batches[0].frames] == [
-        0x101,
-        0x101,
-        0x101,
-        0x101,
         0x102,
+        0x101,
+        0x101,
+        0x101,
+        0x101,
         0x103,
         0x103,
         0x103,

@@ -3,22 +3,27 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 import threading
 import time
 from typing import Callable, Optional
 
+from .board3_feedback import Board3PositionFeedbackAssembler
 from .can_protocol import (
     BOARD3_SERVO_COUNT,
     BOARD_ID_BOARD3,
     BoardError,
     BoardState,
     BoardStatus,
+    CAN_ID_BOARD3_POSITION_FEEDBACK,
     CAN_ID_BOARD3_STATUS,
     CanFrame,
+    error_name_for_board,
     pack_clear_error,
     pack_enable,
     pack_position_command,
+    unpack_board3_position_feedback,
     unpack_status,
 )
 from .socketcan_transport import SocketCanTransport
@@ -35,9 +40,29 @@ class Board3StatusMonitor:
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._latest: Optional[BoardStatus] = None
+        self._feedback = Board3PositionFeedbackAssembler()
+        self._latest_positions_rad: Optional[tuple[float, ...]] = None
 
     def handle_frame(self, frame: CanFrame) -> None:
-        """Decode one CAN frame if it is Board3 status."""
+        """Decode one Board3 status or position feedback CAN frame."""
+        if frame.can_id == CAN_ID_BOARD3_POSITION_FEEDBACK:
+            group = unpack_board3_position_feedback(frame.data)
+            snapshot = self._feedback.update(group)
+            if snapshot is None:
+                return
+
+            with self._lock:
+                self._latest_positions_rad = snapshot.positions_rad
+
+            if self._verbose:
+                print(
+                    'RX 0x303 '
+                    f'{format_board3_positions(snapshot.positions_rad)} '
+                    f'flags={snapshot.raw_flags}'
+                )
+
+            return
+
         if frame.can_id != CAN_ID_BOARD3_STATUS:
             return
 
@@ -54,6 +79,11 @@ class Board3StatusMonitor:
         """Return the latest status snapshot."""
         with self._lock:
             return self._latest
+
+    def latest_positions_rad(self) -> Optional[tuple[float, ...]]:
+        """Return the latest complete Board3 position feedback snapshot."""
+        with self._lock:
+            return self._latest_positions_rad
 
     def wait_for_status(self, timeout_s: float) -> Optional[BoardStatus]:
         """Wait until at least one status frame arrives."""
@@ -106,6 +136,15 @@ def format_board3_status(status: BoardStatus) -> str:
     )
 
 
+def format_board3_positions(positions_rad: tuple[float, ...]) -> str:
+    """Return a compact Board3 position string in degrees."""
+    degrees = [
+        f'{math.degrees(value):.2f}'
+        for value in positions_rad
+    ]
+    return 'deg=[' + ','.join(degrees) + ']'
+
+
 def board3_state_name(value: int) -> str:
     """Return Board3-specific state names."""
     names = {
@@ -122,10 +161,7 @@ def board3_state_name(value: int) -> str:
 
 def error_name(value: int) -> str:
     """Return known error name, or the raw value."""
-    try:
-        return BoardError(int(value)).name
-    except ValueError:
-        return f'ERR_{value}'
+    return error_name_for_board(value, BOARD_ID_BOARD3)
 
 
 def is_board3_ready(status: BoardStatus) -> bool:
@@ -233,7 +269,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     monitor = Board3StatusMonitor(verbose=True)
     transport = SocketCanTransport(
         args.interface,
-        receive_ids=(CAN_ID_BOARD3_STATUS,),
+        receive_ids=(
+            CAN_ID_BOARD3_STATUS,
+            CAN_ID_BOARD3_POSITION_FEEDBACK,
+        ),
         frame_callback=monitor.handle_frame,
         error_callback=lambda exc: print(f'RX error: {exc}', file=sys.stderr),
     )

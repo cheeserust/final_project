@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import struct
 from typing import Deque, Optional
 
 from arm_can_bridge.can_protocol import (
     ALL_MOTORS,
     BOARD_ID_ALL,
+    BOARD_ID_ALL_LEGACY,
     BOARD_ID_BOARD1,
     BOARD1_MOTOR_COUNT,
     BOARD2_REQUIRED_HOMING_MASK,
@@ -16,10 +18,13 @@ from arm_can_bridge.can_protocol import (
     BOARD_ID_BOARD3,
     BOARD3_READY_VALUE,
     BOARD3_SERVO_COUNT,
+    CAN_ID_BOARD1_POSITION_FEEDBACK,
     CAN_ID_BOARD1_STATUS,
+    CAN_ID_BOARD2_POSITION_FEEDBACK,
     CAN_ID_BOARD2_POSITION_COMMAND,
     CAN_ID_BOARD2_STATUS,
     CAN_ID_BOARD3_SERVO_COMMAND,
+    CAN_ID_BOARD3_POSITION_FEEDBACK,
     CAN_ID_BOARD3_STATUS,
     CAN_ID_CLEAR_ERROR,
     CAN_ID_ENABLE,
@@ -64,6 +69,7 @@ class Board1SimulatorModel:
         board_id: int = BOARD_ID_BOARD1,
         motor_count: int = BOARD1_MOTOR_COUNT,
         position_can_id: int = CAN_ID_POSITION_COMMAND,
+        position_feedback_can_id: int = CAN_ID_BOARD1_POSITION_FEEDBACK,
         status_can_id: int = CAN_ID_BOARD1_STATUS,
         required_homing_mask: int = REQUIRED_HOMING_MASK,
         supports_homing: bool = True,
@@ -82,6 +88,7 @@ class Board1SimulatorModel:
         self.board_id = int(board_id)
         self.motor_count = int(motor_count)
         self.position_can_id = int(position_can_id)
+        self.position_feedback_can_id = int(position_feedback_can_id)
         self.status_can_id = int(status_can_id)
         self.required_homing_mask = int(required_homing_mask)
         self.supports_homing = bool(supports_homing)
@@ -106,6 +113,7 @@ class Board1SimulatorModel:
 
         # This is not reported by 0x201, but is useful for future tests.
         self.commanded_angle_raw = [0] * self.motor_count
+        self._feedback_motor_index = 0
 
         self.state = BoardState.IDLE
 
@@ -151,19 +159,27 @@ class Board1SimulatorModel:
         response in addition to the periodic status timer.
         """
         if frame.can_id == CAN_ID_ESTOP:
-            if not self._control_targets_this_board(frame.data, 1):
-                return False
+            if not self._is_valid_estop_payload(frame.data):
+                return True
             self._handle_estop()
             return True
 
         if frame.can_id == CAN_ID_ENABLE:
-            if not self._control_targets_this_board(frame.data, 2):
+            if not self._control_targets_this_board(
+                frame.data,
+                minimum_length=2,
+                target_index=1,
+            ):
                 return False
             self._handle_enable(frame.data)
             return True
 
         if frame.can_id == CAN_ID_HOMING:
-            if not self._control_targets_this_board(frame.data, 3):
+            if not self._control_targets_this_board(
+                frame.data,
+                minimum_length=3,
+                target_index=0,
+            ):
                 return False
             if not self.supports_homing:
                 return False
@@ -171,7 +187,11 @@ class Board1SimulatorModel:
             return True
 
         if frame.can_id == CAN_ID_CLEAR_ERROR:
-            if not self._control_targets_this_board(frame.data, 2):
+            if not self._control_targets_this_board(
+                frame.data,
+                minimum_length=2,
+                target_index=0,
+            ):
                 return False
             self._handle_clear_error(frame.data)
             return True
@@ -186,19 +206,35 @@ class Board1SimulatorModel:
         self,
         data: bytes,
         minimum_length: int,
+        target_index: int,
     ) -> bool:
-        if len(data) < 1:
+        if len(data) <= target_index:
             self._set_error(BoardError.INVALID_CMD)
             return True
 
-        board_id = data[0]
+        board_id = data[target_index]
 
-        if board_id not in (self.board_id, BOARD_ID_ALL):
+        if board_id not in (
+            self.board_id,
+            BOARD_ID_ALL_LEGACY,
+            BOARD_ID_ALL,
+        ):
             return False
 
         if len(data) < minimum_length:
             self._set_error(BoardError.INVALID_CMD)
             return True
+
+        return True
+
+    def _is_valid_estop_payload(self, data: bytes) -> bool:
+        if len(data) < 1:
+            self._set_error(BoardError.INVALID_CMD)
+            return False
+
+        if data[0] != 1:
+            self._set_error(BoardError.INVALID_CMD)
+            return False
 
         return True
 
@@ -212,7 +248,7 @@ class Board1SimulatorModel:
             self._set_error(BoardError.INVALID_CMD)
             return
 
-        enabled = bool(data[1])
+        enabled = bool(data[0])
 
         if enabled:
             self.enabled = True
@@ -242,6 +278,10 @@ class Board1SimulatorModel:
             self._set_error(BoardError.INVALID_CMD)
             return
 
+        if self.board_id == BOARD_ID_BOARD3:
+            self._handle_board3_home_posture(motor_id)
+            return
+
         if motor_id == ALL_MOTORS:
             self._homing_mask = self.required_homing_mask
         elif 0 <= motor_id < self.motor_count:
@@ -260,6 +300,29 @@ class Board1SimulatorModel:
 
         if self.homing_duration_s == 0.0:
             self._finish_homing()
+
+    def _handle_board3_home_posture(self, motor_id: int) -> None:
+        if motor_id != ALL_MOTORS:
+            self._set_error(BoardError.INVALID_CMD)
+            return
+
+        self._clear_motion()
+        self.homing_done_bits = BOARD3_READY_VALUE
+
+        if self.homing_duration_s == 0.0:
+            self.commanded_angle_raw = [0] * self.motor_count
+            self.state = BoardState.IDLE
+            return
+
+        for local_motor_id in range(self.motor_count):
+            self._active_by_motor[local_motor_id] = ActiveCommand(
+                motor_id=local_motor_id,
+                target_pos=0,
+                speed=0,
+                remaining_s=self.homing_duration_s,
+            )
+
+        self.state = BoardState.MOVING
 
     def _handle_clear_error(self, data: bytes) -> None:
         if len(data) < 2:
@@ -309,11 +372,20 @@ class Board1SimulatorModel:
             self._set_error(BoardError.QUEUE_FULL)
             return
 
-        expected_motor_id = len(self._staged_commands)
-        if control.motor_id != expected_motor_id:
-            self._staged_commands.clear()
-            self._set_error(BoardError.INVALID_CMD)
-            return
+        if self.board_id == BOARD_ID_BOARD3:
+            if any(
+                command.motor_id == control.motor_id
+                for command in self._staged_commands
+            ):
+                self._staged_commands.clear()
+                self._set_error(BoardError.INVALID_CMD)
+                return
+        else:
+            expected_motor_id = len(self._staged_commands)
+            if control.motor_id != expected_motor_id:
+                self._staged_commands.clear()
+                self._set_error(BoardError.INVALID_CMD)
+                return
 
         target_pos = int.from_bytes(
             data[1:5],
@@ -346,7 +418,14 @@ class Board1SimulatorModel:
         )
 
         if len(self._staged_commands) == self.motor_count:
-            self._queue.append(tuple(self._staged_commands))
+            self._queue.append(
+                tuple(
+                    sorted(
+                        self._staged_commands,
+                        key=lambda command: command.motor_id,
+                    )
+                )
+            )
             self._staged_commands.clear()
 
         self._start_ready_commands()
@@ -452,6 +531,102 @@ class Board1SimulatorModel:
         ])
         return CanFrame(self.status_can_id, data)
 
+    def build_position_feedback_frames(
+        self,
+        *,
+        max_frames: Optional[int] = None,
+    ) -> tuple[CanFrame, ...]:
+        """Build actual-position feedback frames for this simulated board."""
+        if self.board_id != BOARD_ID_BOARD3:
+            frame_count = (
+                self.motor_count
+                if max_frames is None
+                else min(int(max_frames), self.motor_count)
+            )
+            motor_ids = [
+                (self._feedback_motor_index + offset) % self.motor_count
+                for offset in range(frame_count)
+            ]
+            self._feedback_motor_index = (
+                self._feedback_motor_index + frame_count
+            ) % self.motor_count
+            return tuple(
+                self._build_motor_position_feedback_frame(motor_id)
+                for motor_id in motor_ids
+            )
+
+        frames = []
+        for group_index in range(1, 4):
+            start = (group_index - 1) * 3
+            motor_ids = range(start, start + 3)
+            raw_positions = [
+                self._feedback_position_raw(motor_id)
+                for motor_id in motor_ids
+            ]
+            status_codes = [
+                self._feedback_status_code(motor_id)
+                for motor_id in motor_ids
+            ]
+            flags = 0x40
+            flags |= status_codes[0] & 0x03
+            flags |= (status_codes[1] & 0x03) << 2
+            flags |= (status_codes[2] & 0x03) << 4
+
+            if self.limit_status_bits or self.error_code != BoardError.NONE:
+                flags |= 0x80
+
+            frames.append(
+                CanFrame(
+                    CAN_ID_BOARD3_POSITION_FEEDBACK,
+                    struct.pack(
+                        '<BhhhB',
+                        group_index,
+                        raw_positions[0],
+                        raw_positions[1],
+                        raw_positions[2],
+                        flags,
+                    ),
+                )
+            )
+
+        return tuple(frames)
+
+    def _build_motor_position_feedback_frame(
+        self,
+        motor_id: int,
+    ) -> CanFrame:
+        flags = 0x01
+        if self._all_axes_homed():
+            flags |= 0x02
+        if self._active_by_motor[motor_id] is not None:
+            flags |= 0x04
+        else:
+            flags |= 0x08
+
+        error_code = int(self.error_code)
+        return CanFrame(
+            self.position_feedback_can_id,
+            struct.pack(
+                '<BBiBB',
+                motor_id,
+                flags,
+                int(self.commanded_angle_raw[motor_id]),
+                error_code,
+                0,
+            ),
+        )
+
+    def _feedback_position_raw(self, motor_id: int) -> int:
+        raw = int(self.commanded_angle_raw[motor_id])
+        return max(-32768, min(32767, raw))
+
+    def _feedback_status_code(self, motor_id: int) -> int:
+        if self.state == BoardState.ERROR:
+            return 3
+        if self._active_by_motor[motor_id] is not None:
+            return 1
+        return 0
+
 
 def make_board2_simulator_model(
     *,
@@ -463,6 +638,7 @@ def make_board2_simulator_model(
         board_id=BOARD_ID_BOARD2,
         motor_count=1,
         position_can_id=CAN_ID_BOARD2_POSITION_COMMAND,
+        position_feedback_can_id=CAN_ID_BOARD2_POSITION_FEEDBACK,
         status_can_id=CAN_ID_BOARD2_STATUS,
         required_homing_mask=BOARD2_REQUIRED_HOMING_MASK,
         queue_capacity=queue_capacity,
@@ -473,16 +649,18 @@ def make_board2_simulator_model(
 def make_board3_simulator_model(
     *,
     queue_capacity: int = QUEUE_CAPACITY,
+    homing_duration_s: float = 0.5,
 ) -> Board1SimulatorModel:
     """Create a nine-servo Board3 simulator model."""
     return Board1SimulatorModel(
         board_id=BOARD_ID_BOARD3,
         motor_count=BOARD3_SERVO_COUNT,
         position_can_id=CAN_ID_BOARD3_SERVO_COMMAND,
+        position_feedback_can_id=CAN_ID_BOARD3_POSITION_FEEDBACK,
         status_can_id=CAN_ID_BOARD3_STATUS,
         required_homing_mask=BOARD3_READY_VALUE,
-        supports_homing=False,
+        supports_homing=True,
         ready_when_enabled=True,
         queue_capacity=queue_capacity,
-        homing_duration_s=0.0,
+        homing_duration_s=homing_duration_s,
     )
