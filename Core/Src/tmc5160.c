@@ -59,6 +59,7 @@ static void tmc5160_init_axis(uint8_t axis_id)
 void tmc5160_init_all(void)
 {
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
+        if (i == 3) continue; // Board1 Motor ID 3, 로봇 팔 5축, TMC2209라 건너뜀
         tmc5160_init_axis(i);  // 각 축 TMC5160 초기화
     }
 }
