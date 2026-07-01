@@ -10,7 +10,7 @@
 #define MICROSTEP                16
 #define TRAJECTORY_QUEUE_SIZE    32
 #define MULTI_AXIS_QUEUE_SIZE    (TRAJECTORY_QUEUE_SIZE / AXIS_COUNT)
-#define STAGING_TIMEOUT_MS       20
+#define PENDING_TIMEOUT_MS       20
 
 #define CAN_ID_ESTOP             0x001
 #define CAN_ID_ENABLE            0x010
@@ -37,7 +37,7 @@
 #define ERR_RESERVED             6
 
 #define HOMING_ALL_AXIS          255
-#define LIMIT_SWITCH_ACTIVE_LEVEL 0
+#define LIMIT_SWITCH_ACTIVE_LEVEL 1
 #define LIMIT_SWITCH_DEBOUNCE_TICKS 500
 #define HOMING_INTERVAL_TICKS    300
 
@@ -48,12 +48,12 @@ typedef struct {
     volatile int32_t current_step;
     volatile int32_t target_step;
 
-    int32_t seg_start_step;
-    int32_t seg_end_step;
-    int32_t seg_delta_step;
+    int32_t move_start_step;
+    int32_t move_end_step;
+    int32_t move_step_offset;
 
-    uint16_t seg_total_ms;
-    uint16_t seg_elapsed_ms;
+    uint16_t move_total_time_ms;
+    uint16_t move_elapsed_time_ms;
 
     uint8_t moving;
     uint8_t homing;
@@ -61,20 +61,22 @@ typedef struct {
     uint8_t enabled;
 } MotorState;
 
+// CAN에서 받은 축 1개 명령
 typedef struct {
     uint8_t motor_id;
     uint8_t flags;
     int32_t target_pos;
     uint16_t speed;
-    uint8_t duration_5ms;
-} TrajectoryPoint;
+    uint8_t move_duration_5ms;
+} CanTrajectoryCommand;
 
+// 축 4개 이동 명령
 typedef struct {
     int32_t target_pos[AXIS_COUNT];
     uint16_t speed[AXIS_COUNT];
     uint8_t flags[AXIS_COUNT];
-    uint8_t duration_5ms;
-} MultiAxisTrajectoryPoint;
+    uint8_t move_duration_5ms;
+} MultiAxisMoveCommand;
 
 extern MotorState axis[AXIS_COUNT];
 extern volatile uint8_t global_motor_enabled;

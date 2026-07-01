@@ -16,7 +16,7 @@ typedef struct {
     uint8_t enable;
     uint8_t target_axis;
     uint8_t homing_mode;
-    TrajectoryPoint move;
+    CanTrajectoryCommand trajectory_command;
 } CanCommand;
 
 void can_send_status(void);

@@ -257,6 +257,8 @@ static void tmc_write(uint8_t axis, uint8_t addr, uint32_t data)
 static void tmc_init_all(void)
 {
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
+        if (i == 3) continue;
+        
         tmc_write(i, TMC_REG_GCONF, 0x00000000U);
         tmc_write(i, TMC_REG_IHOLD_IRUN, 0x00061004U);
         tmc_write(i, TMC_REG_CHOPCONF, 0x040100C3U);

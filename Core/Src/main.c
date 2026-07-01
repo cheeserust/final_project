@@ -106,7 +106,7 @@ static uint8_t run_can_command(const CanCommand *cmd)
         }
 
         global_motor_error = ERR_NONE;      // 새 homing 명령 전 에러 초기화
-        trajectory_cancel_staging();        // 조립 중이던 다축 이동 명령 취소
+        trajectory_cancel_pending();        // 수신 중이던 다축 이동 명령 취소
         stepper_start_homing_all();         // 전체 축 원점복귀 시작
         return 1;  // homing 시작 또는 에러 상태 송신
     }
@@ -119,7 +119,7 @@ static uint8_t run_can_command(const CanCommand *cmd)
         }
 
         global_motor_error = ERR_NONE;       // 에러 코드 초기화
-        trajectory_cancel_staging();         // 에러 중 들어오던 이동 명령 조립 취소
+        trajectory_cancel_pending();         // 에러 중 들어오던 이동 명령 수신 취소
         if (!global_motor_estop) {
             global_motor_state = global_motor_enabled ? STATE_IDLE : STATE_DISABLED;  // enable 상태에 맞게 복귀
         }
@@ -128,29 +128,29 @@ static uint8_t run_can_command(const CanCommand *cmd)
 
     // 5. 이동 명령
     if (cmd->type == CAN_CMD_MOVE) {
-        const TrajectoryPoint *point = &cmd->move;
-        uint8_t execute = (point->flags & 0x08) ? 1 : 0;  // 실행 플래그
-        uint8_t stage_result;
+        const CanTrajectoryCommand *command = &cmd->trajectory_command;
+        uint8_t execute = (command->flags & 0x08) ? 1 : 0;  // 실행 플래그
+        uint8_t pending_result;
 
         if (!execute) return 0;  // 실행 플래그가 없으면 무시
         if (!global_motor_enabled || global_motor_estop) return 0;  // 모터 비활성/비상정지 중이면 무시
         if (global_motor_error != ERR_NONE) return 0;  // 에러 상태에서는 새 이동 명령 차단
-        if (point->motor_id >= AXIS_COUNT) {
-            trajectory_cancel_staging();          // 잘못된 프레임으로 조립 중인 명령 취소
+        if (command->motor_id >= AXIS_COUNT) {
+            trajectory_cancel_pending();          // 잘못된 프레임으로 수신 중인 명령 취소
             global_motor_error = ERR_INVALID_CMD; // 존재하지 않는 축 번호
             return 1;                             // 에러 상태 송신
         }
-        if (!axis[point->motor_id].homing_done) {
-            trajectory_cancel_staging();          // homing 전 이동 명령은 폐기
+        if (!axis[command->motor_id].homing_done) {
+            trajectory_cancel_pending();          // homing 전 이동 명령은 폐기
             global_motor_error = ERR_INVALID_CMD; // 원점복귀 전 이동 금지
             return 1;                             // 에러 상태 송신
         }
-        stage_result = trajectory_stage_command(point);  // 축별 프레임을 다축 이동 명령으로 조립
-        if (stage_result == TRAJECTORY_STAGE_INVALID) {
+        pending_result = trajectory_add_pending_command(command);  // 축별 프레임을 다축 이동 명령에 저장
+        if (pending_result == TRAJECTORY_PENDING_INVALID) {
             global_motor_error = ERR_INVALID_CMD;  // 프레임 순서/플래그/축 번호 오류
             return 1;                              // 에러 상태 송신
         }
-        if (stage_result == TRAJECTORY_STAGE_QUEUE_FULL) {
+        if (pending_result == TRAJECTORY_PENDING_QUEUE_FULL) {
             global_motor_error = ERR_QUEUE_FULL;  // 궤적 큐가 가득 참
             return 1;                             // 에러 상태 송신
         }
@@ -204,8 +204,8 @@ int main(void)
         }
 
         // 4. 다축 이동 명령이 중간에 끊겼는지 확인
-        if (trajectory_check_staging_timeout()) {
-            can_send_status();  // 다축 명령 조립 타임아웃 발생 시 상태 송신
+        if (trajectory_check_pending_timeout()) {
+            can_send_status();  // 다축 명령 수신 타임아웃 발생 시 상태 송신
         }
 
         // 5. 100ms마다 현재 상태를 CAN으로 송신

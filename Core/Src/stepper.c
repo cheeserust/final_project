@@ -44,11 +44,11 @@ void stepper_init(void)
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         axis[i].current_step = 0;
         axis[i].target_step = 0;
-        axis[i].seg_start_step = 0;
-        axis[i].seg_end_step = 0;
-        axis[i].seg_delta_step = 0;
-        axis[i].seg_total_ms = 0;
-        axis[i].seg_elapsed_ms = 0;
+        axis[i].move_start_step = 0;
+        axis[i].move_end_step = 0;
+        axis[i].move_step_offset = 0;
+        axis[i].move_total_time_ms = 0;
+        axis[i].move_elapsed_time_ms = 0;
         axis[i].moving = 0;
         axis[i].homing = 0;
         axis[i].homing_done = 0;
@@ -72,11 +72,11 @@ void stepper_stop_axis(uint8_t id)
     else if (id == 3) STEP4_PORT->BSRR = (1 << (STEP4_PIN + 16));
 
     axis[id].target_step = axis[id].current_step;
-    axis[id].seg_start_step = axis[id].current_step;
-    axis[id].seg_end_step = axis[id].current_step;
-    axis[id].seg_delta_step = 0;
-    axis[id].seg_total_ms = 0;
-    axis[id].seg_elapsed_ms = 0;
+    axis[id].move_start_step = axis[id].current_step;
+    axis[id].move_end_step = axis[id].current_step;
+    axis[id].move_step_offset = 0;
+    axis[id].move_total_time_ms = 0;
+    axis[id].move_elapsed_time_ms = 0;
     axis[id].moving = 0;
     axis[id].homing = 0;
 }
@@ -104,8 +104,8 @@ void stepper_start_homing(uint8_t id)
     if (!global_motor_enabled || global_motor_estop) return;
 
     axis[id].target_step = axis[id].current_step;
-    axis[id].seg_total_ms = 0;
-    axis[id].seg_elapsed_ms = 0;
+    axis[id].move_total_time_ms = 0;
+    axis[id].move_elapsed_time_ms = 0;
     axis[id].moving = 1;
     axis[id].homing = 1;
     axis[id].homing_done = 0;
@@ -152,14 +152,14 @@ void stepper_10us_interrupt(void)
         // 홈으로 갈때 읽음
         if (axis[i].homing) {
             if (limit_switch_pressed_stable(i)) {
-                int32_t home_step = trajectory_angle_raw_to_step(i, trajectory_axis_home_raw(i));
+                int32_t home_step = angle_to_step(i, get_home_angle(i));
                 axis[i].current_step = home_step;
                 axis[i].target_step = home_step;
-                axis[i].seg_start_step = home_step;
-                axis[i].seg_end_step = home_step;
-                axis[i].seg_delta_step = 0;
-                axis[i].seg_total_ms = 0;
-                axis[i].seg_elapsed_ms = 0;
+                axis[i].move_start_step = home_step;
+                axis[i].move_end_step = home_step;
+                axis[i].move_step_offset = 0;
+                axis[i].move_total_time_ms = 0;
+                axis[i].move_elapsed_time_ms = 0;
                 axis[i].homing = 0;
                 axis[i].moving = 0;
                 axis[i].homing_done = 1;

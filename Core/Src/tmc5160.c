@@ -8,18 +8,18 @@
 
 static void tmc_cs_low(uint8_t axis_id)
 {
-    if (axis_id == 0) GPIO_CLEAR_ODR(CS1_PORT, CS1_PIN);       // 1번 축 TMC5160 선택
-    else if (axis_id == 1) GPIO_CLEAR_ODR(CS2_PORT, CS2_PIN);  // 2번 축 TMC5160 선택
-    else if (axis_id == 2) GPIO_CLEAR_ODR(CS3_PORT, CS3_PIN);  // 3번 축 TMC5160 선택
-    else if (axis_id == 3) GPIO_CLEAR_ODR(CS4_PORT, CS4_PIN);  // 4번 축 TMC5160 선택
+    if (axis_id == 0) GPIO_CLEAR_ODR(CS1_PORT, CS1_PIN);       // 1번 축
+    else if (axis_id == 1) GPIO_CLEAR_ODR(CS2_PORT, CS2_PIN);  // 2번 축
+    else if (axis_id == 2) GPIO_CLEAR_ODR(CS3_PORT, CS3_PIN);  // 3번 축
+    else if (axis_id == 3) GPIO_CLEAR_ODR(CS4_PORT, CS4_PIN);  // 4번 축
 }
 
 static void tmc_cs_high(uint8_t axis_id)
 {
-    if (axis_id == 0) GPIO_SET_ODR(CS1_PORT, CS1_PIN);       // 1번 축 TMC5160 선택 해제
-    else if (axis_id == 1) GPIO_SET_ODR(CS2_PORT, CS2_PIN);  // 2번 축 TMC5160 선택 해제
-    else if (axis_id == 2) GPIO_SET_ODR(CS3_PORT, CS3_PIN);  // 3번 축 TMC5160 선택 해제
-    else if (axis_id == 3) GPIO_SET_ODR(CS4_PORT, CS4_PIN);  // 4번 축 TMC5160 선택 해제
+    if (axis_id == 0) GPIO_SET_ODR(CS1_PORT, CS1_PIN);       // 1번 축
+    else if (axis_id == 1) GPIO_SET_ODR(CS2_PORT, CS2_PIN);  // 2번 축
+    else if (axis_id == 2) GPIO_SET_ODR(CS3_PORT, CS3_PIN);  // 3번 축
+    else if (axis_id == 3) GPIO_SET_ODR(CS4_PORT, CS4_PIN);  // 4번 축
 }
 
 static void tmc5160_write(uint8_t axis_id, uint8_t addr, uint32_t data)

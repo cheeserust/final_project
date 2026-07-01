@@ -36,7 +36,7 @@ void can_send_status(void)
     data[2] = system_homing_done_bits();    // 각 축의 원점복귀 완료 비트
     data[3] = system_first_moving_axis();   // 움직이는 축 중 첫 번째 축 번호
     data[4] = stepper_limit_switch_status_bits();  // 리미트 스위치 입력 상태 비트
-    data[5] = trajectory_free_count();      // 남은 궤적 큐 슬롯 수
+    data[5] = get_available_axis_command_count();      // 남은 궤적 큐 슬롯 수
     data[6] = system_enabled_status();      // 모터 enable/estop 상태
     data[7] = 0;                            // 예비 바이트
     (void)mcp2515_send_std(CAN_ID_BOARD1_STAT, data, 8);  // 보드 상태 프레임 송신
@@ -115,11 +115,11 @@ uint8_t can_decode_frame(uint16_t id, const uint8_t *data, uint8_t len, CanComma
     if (id == CAN_ID_BOARD1_MOVE) {
         if (len < 8) return 0;  // 이동 명령은 8바이트 프레임만 처리
         cmd->type = CAN_CMD_MOVE;
-        cmd->move.motor_id = data[0] & 0x0F;       // 하위 4비트: 축 번호
-        cmd->move.flags = data[0] >> 4;             // 상위 4비트: 실행/좌표 모드 플래그
-        cmd->move.target_pos = get_i32_le(&data[1]);  // 목표 위치(raw 각도 단위)
-        cmd->move.speed = get_u16_le(&data[5]);       // 목표 속도 필드
-        cmd->move.duration_5ms = data[7];             // 이동 시간(5ms 단위)
+        cmd->trajectory_command.motor_id = data[0] & 0x0F;       // 하위 4비트: 축 번호
+        cmd->trajectory_command.flags = data[0] >> 4;             // 상위 4비트: 실행/좌표 모드 플래그
+        cmd->trajectory_command.target_pos = get_i32_le(&data[1]);  // 목표 위치(raw 각도 단위)
+        cmd->trajectory_command.speed = get_u16_le(&data[5]);       // 목표 속도 필드
+        cmd->trajectory_command.move_duration_5ms = data[7];             // 이동 시간(5ms 단위)
         return 1;
     }
 
