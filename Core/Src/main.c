@@ -57,7 +57,7 @@ static void set_all_axis_enabled(uint8_t enabled)
     }
 }
 
-static uint8_t run_can_command(const CanCommand *cmd)
+static uint8_t process_can_command(const CanCommand *cmd)
 {
     // 1. 비상정지 명령
     if (cmd->type == CAN_CMD_ESTOP) {
@@ -100,10 +100,6 @@ static uint8_t run_can_command(const CanCommand *cmd)
             global_motor_error = ERR_INVALID_CMD;  // 지원하지 않는 homing 모드
             return 1;                              // 에러 상태 송신
         }
-        if (cmd->target_axis != HOMING_ALL_AXIS) {
-            global_motor_error = ERR_INVALID_CMD;  // 최종 프로토콜은 arm 전체 homing만 허용
-            return 1;
-        }
 
         global_motor_error = ERR_NONE;      // 새 homing 명령 전 에러 초기화
         trajectory_cancel_pending();        // 수신 중이던 다축 이동 명령 취소
@@ -129,10 +125,10 @@ static uint8_t run_can_command(const CanCommand *cmd)
     // 5. 이동 명령
     if (cmd->type == CAN_CMD_MOVE) {
         const CanTrajectoryCommand *command = &cmd->trajectory_command;
-        uint8_t execute = (command->flags & 0x08) ? 1 : 0;  // 실행 플래그
+        uint8_t is_execute_requested = (command->flags & 0x08) ? 1 : 0;  // 실행 플래그
         uint8_t pending_result;
 
-        if (!execute) return 0;  // 실행 플래그가 없으면 무시
+        if (!is_execute_requested) return 0;  // 실행 플래그가 없으면 무시
         if (!global_motor_enabled || global_motor_estop) return 0;  // 모터 비활성/비상정지 중이면 무시
         if (global_motor_error != ERR_NONE) return 0;  // 에러 상태에서는 새 이동 명령 차단
         if (command->motor_id >= AXIS_COUNT) {
@@ -146,6 +142,7 @@ static uint8_t run_can_command(const CanCommand *cmd)
             return 1;                             // 에러 상태 송신
         }
         pending_result = trajectory_add_pending_command(command);  // 축별 프레임을 다축 이동 명령에 저장
+
         if (pending_result == TRAJECTORY_PENDING_INVALID) {
             global_motor_error = ERR_INVALID_CMD;  // 프레임 순서/플래그/축 번호 오류
             return 1;                              // 에러 상태 송신
@@ -154,7 +151,7 @@ static uint8_t run_can_command(const CanCommand *cmd)
             global_motor_error = ERR_QUEUE_FULL;  // 궤적 큐가 가득 참
             return 1;                             // 에러 상태 송신
         }
-        return 0;  // 정상 이동 명령은 기존처럼 즉시 상태 송신하지 않음
+        return 0;
     }
 
     return 0;
@@ -194,9 +191,9 @@ int main(void)
             // 2. MCP2515 수신 버퍼에 남아있는 메시지를 모두 읽음
             while (mcp2515_receive(&id, data, &len)) {
 
-                // 3. CAN ID/data를 명령으로 바꾼 뒤 실행
+                // 3. CAN ID/data -> command 바꾸고 실행
                 if (can_decode_frame(id, data, len, &cmd)) {
-                    if (run_can_command(&cmd)) {
+                    if (process_can_command(&cmd)) {
                         can_send_status();  // 상태 변화/에러는 즉시 송신
                     }
                 }
@@ -204,7 +201,7 @@ int main(void)
         }
 
         // 4. 다축 이동 명령이 중간에 끊겼는지 확인
-        if (trajectory_check_pending_timeout()) {
+        if (trajectory_handle_pending_timeout()) {
             can_send_status();  // 다축 명령 수신 타임아웃 발생 시 상태 송신
         }
 

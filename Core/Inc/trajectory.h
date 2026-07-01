@@ -6,8 +6,8 @@
 void trajectory_clear(void);
 void trajectory_cancel_pending(void);
 uint8_t trajectory_add_pending_command(const CanTrajectoryCommand *command);
-uint8_t trajectory_check_pending_timeout(void);
-uint8_t get_available_axis_command_count(void);
+uint8_t trajectory_handle_pending_timeout(void);
+uint8_t get_free_axis_command_count(void);
 void trajectory_1ms_interrupt(void);
 int32_t angle_to_step(uint8_t axis_id, int32_t angle_raw);
 int32_t step_to_angle(uint8_t axis_id, int32_t step);

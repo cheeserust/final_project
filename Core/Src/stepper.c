@@ -7,7 +7,7 @@ static const uint8_t home_dir[AXIS_COUNT] = {
     DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE
 };
 
-static uint8_t limit_switch_pressed(uint8_t id)
+static uint8_t is_limit_switch_pressed(uint8_t id)
 {
     uint8_t value = 1;
     if (id == 0) value = (uint8_t)((LIM1_PORT->IDR & (1 << LIM1_PIN)) != 0);
@@ -17,9 +17,9 @@ static uint8_t limit_switch_pressed(uint8_t id)
     return (value == LIMIT_SWITCH_ACTIVE_LEVEL);
 }
 
-static uint8_t limit_switch_pressed_stable(uint8_t id)
+static uint8_t is_limit_switch_pressed_stable(uint8_t id)
 {
-    if (limit_switch_pressed(id)) {
+    if (is_limit_switch_pressed(id)) {
         if (limit_switch_debounce[id] < LIMIT_SWITCH_DEBOUNCE_TICKS)
         {
             limit_switch_debounce[id]++;
@@ -34,7 +34,7 @@ uint8_t stepper_limit_switch_status_bits(void)
 {
     uint8_t bits = 0;
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
-        if (limit_switch_pressed(i)) bits |= (uint8_t)(1 << i);
+        if (is_limit_switch_pressed(i)) bits |= (uint8_t)(1 << i);
     }
     return bits;
 }
@@ -151,7 +151,7 @@ void stepper_10us_interrupt(void)
 
         // 홈으로 갈때 읽음
         if (axis[i].homing) {
-            if (limit_switch_pressed_stable(i)) {
+            if (is_limit_switch_pressed_stable(i)) {
                 int32_t home_step = angle_to_step(i, get_home_angle(i));
                 axis[i].current_step = home_step;
                 axis[i].target_step = home_step;
@@ -208,7 +208,7 @@ void stepper_10us_interrupt(void)
         if (!axis[i].moving) continue;
 
         // 리미트 닿으면 멈춤
-        if (limit_switch_pressed(i)) {
+        if (is_limit_switch_pressed(i)) {
             stop_by_limit();
             return;
         }

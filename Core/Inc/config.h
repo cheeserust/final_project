@@ -67,7 +67,7 @@ typedef struct {
     uint8_t flags;
     int32_t target_pos;
     uint16_t speed;
-    uint8_t move_duration_5ms;
+    uint8_t move_duration_units_from_can;
 } CanTrajectoryCommand;
 
 // 축 4개 이동 명령
@@ -75,7 +75,7 @@ typedef struct {
     int32_t target_pos[AXIS_COUNT];
     uint16_t speed[AXIS_COUNT];
     uint8_t flags[AXIS_COUNT];
-    uint8_t move_duration_5ms;
+    uint8_t move_duration_units;
 } MultiAxisMoveCommand;
 
 extern MotorState axis[AXIS_COUNT];

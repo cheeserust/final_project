@@ -7,7 +7,7 @@ volatile uint8_t global_motor_error = ERR_NONE;
 volatile uint8_t global_motor_estop = 0;
 volatile uint32_t global_tick_ms = 0;
 
-static uint8_t any_axis_homing(void)
+static uint8_t is_any_axis_homing(void)
 {
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         if (axis[i].homing) return 1;
@@ -15,7 +15,7 @@ static uint8_t any_axis_homing(void)
     return 0;
 }
 
-static uint8_t any_axis_moving(void)
+static uint8_t is_any_axis_moving(void)
 {
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         if (axis[i].moving) return 1;
@@ -28,8 +28,8 @@ void system_update_state(void)
     if (global_motor_estop) global_motor_state = STATE_ESTOP;
     else if (global_motor_error != ERR_NONE) global_motor_state = STATE_ERROR;
     else if (!global_motor_enabled) global_motor_state = STATE_DISABLED;
-    else if (any_axis_homing()) global_motor_state = STATE_HOMING;
-    else if (any_axis_moving()) global_motor_state = STATE_MOVING;
+    else if (is_any_axis_homing()) global_motor_state = STATE_HOMING;
+    else if (is_any_axis_moving()) global_motor_state = STATE_MOVING;
     else global_motor_state = STATE_IDLE;
 }
 

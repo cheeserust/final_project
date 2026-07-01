@@ -37,13 +37,13 @@ typedef struct {
     uint8_t flags;
     int32_t target_pos;
     uint16_t speed;
-    uint8_t move_duration_5ms;
+    uint8_t move_duration_units_from_can;
 } CanTrajectoryCommand;
 
 typedef struct {
     int32_t target_pos[AXIS_COUNT];
     uint16_t speed[AXIS_COUNT];
-    uint8_t move_duration_5ms;
+    uint8_t move_duration_units;
 } MultiAxisMoveCommand;
 
 typedef struct {
@@ -177,9 +177,9 @@ static uint8_t stage_point(const CanTrajectoryCommand *point)
         staging.active = 1;
         staging.next_motor_id = 0;
         staging.start_ms = tick_ms;
-        staging.point.move_duration_5ms = point->move_duration_5ms;
+        staging.point.move_duration_units = point->move_duration_units_from_can;
     } else if (point->motor_id != staging.next_motor_id ||
-               point->move_duration_5ms != staging.point.move_duration_5ms) {
+               point->move_duration_units_from_can != staging.point.move_duration_units) {
         staging.active = 0;
         staging.next_motor_id = 0;
         return ERR_INVALID_CMD;
@@ -196,8 +196,8 @@ static uint8_t stage_point(const CanTrajectoryCommand *point)
         return ERR_QUEUE_FULL;
     }
 
-    printf("POINT_COMMIT      duration_ms=%u steps=[%ld,%ld,%ld,%ld]\n",
-           (unsigned)staging.point.move_duration_5ms * 5,
+    printf("POINT_COMMIT      move_duration=%u steps=[%ld,%ld,%ld,%ld]\n",
+           (unsigned)staging.point.move_duration_units * 5,
            (long)angle_raw_to_step(0, staging.point.target_pos[0]),
            (long)angle_raw_to_step(1, staging.point.target_pos[1]),
            (long)angle_raw_to_step(2, staging.point.target_pos[2]),
@@ -262,7 +262,7 @@ static void process_frame(uint16_t id, const uint8_t *data, uint8_t len)
         point.flags = data[0] >> 4;
         point.target_pos = get_i32_le(&data[1]);
         point.speed = get_u16_le(&data[5]);
-        point.move_duration_5ms = data[7];
+        point.move_duration_units_from_can = data[7];
 
         if (!enabled || state == STATE_ESTOP || error != ERR_NONE) return;
         if (point.motor_id >= AXIS_COUNT) {
@@ -317,23 +317,23 @@ static void send_homing_all(void)
     process_frame(CAN_ID_HOMING, data, 2);
 }
 
-static void send_move(uint8_t motor_id, uint8_t flags, int32_t target, uint16_t speed, uint8_t move_duration_5ms)
+static void send_move(uint8_t motor_id, uint8_t flags, int32_t target, uint16_t speed, uint8_t move_duration_units_from_can)
 {
     uint8_t data[8] = { 0 };
     data[0] = (uint8_t)((flags << 4) | (motor_id & 0x0F));
     put_i32_le(&data[1], target);
     put_u16_le(&data[5], speed);
-    data[7] = move_duration_5ms;
+    data[7] = move_duration_units_from_can;
     process_frame(CAN_ID_BOARD1_MOVE, data, 8);
 }
 
-static void send_board1_point(int32_t a0, int32_t a1, int32_t a2, int32_t a3, uint8_t move_duration_5ms)
+static void send_board1_point(int32_t a0, int32_t a1, int32_t a2, int32_t a3, uint8_t move_duration_units_from_can)
 {
     const uint8_t execute = 0x08;
-    send_move(0, execute, a0, 0, move_duration_5ms);
-    send_move(1, execute, a1, 0, move_duration_5ms);
-    send_move(2, execute, a2, 0, move_duration_5ms);
-    send_move(3, execute, a3, 0, move_duration_5ms);
+    send_move(0, execute, a0, 0, move_duration_units_from_can);
+    send_move(1, execute, a1, 0, move_duration_units_from_can);
+    send_move(2, execute, a2, 0, move_duration_units_from_can);
+    send_move(3, execute, a3, 0, move_duration_units_from_can);
 }
 
 int main(void)

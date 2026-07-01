@@ -187,7 +187,7 @@ Board2 베이스 gear ratio는 `20`입니다. 베이스 모터가 일반 1.8도 
 5ms, 10ms, 15ms, 20ms, ...
 
 ```text
-duration_ms = Byte7 * 5
+move_duration = Byte7 * 5
 ```
 
 MoveIt2 trajectory point를 50ms 간격으로 보낼 경우:
