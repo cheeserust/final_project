@@ -3,7 +3,26 @@ const state = {
   polling: false,
 };
 
-const elevatorFsmStates = ["WAIT_BOARD", "BOARDING", "RIDING", "EXITING", "DONE"];
+const elevatorFsmStates = [
+  "GO_TO_ELEVATOR_FRONT",
+  "ALIGN_ELEVATOR_TAG",
+  "PRESS_ELEVATOR_CALL_BUTTON",
+  "WAIT_ELEVATOR_OPEN",
+  "ENTER_ELEVATOR",
+  "ALIGN_INSIDE_ELEVATOR_TAG",
+  "PRESS_5F_BUTTON",
+  "WAIT_5F",
+  "SWITCH_5F_MAP",
+  "EXIT_ELEVATOR",
+  "GO_TO_TARGET_PLACE",
+  "ARM_TASK_AT_TARGET",
+  "RETURN_TO_ELEVATOR",
+  "PRESS_4F_BUTTON",
+  "WAIT_4F",
+  "SWITCH_4F_MAP",
+  "RETURN_HOME",
+  "DONE",
+];
 
 const $ = (id) => document.getElementById(id);
 
@@ -73,8 +92,8 @@ const applyConfig = (config) => {
   const options = locations.length
     ? locations
     : [
-        { name: defaults.pickup_location || "room_402" },
-        { name: defaults.delivery_location || "room_501" },
+        { name: defaults.pickup_location || "home" },
+        { name: defaults.delivery_location || "object_place" },
       ];
 
   for (const select of [pickup, delivery]) {
@@ -91,8 +110,8 @@ const applyConfig = (config) => {
   $("missionId").value = defaults.mission_id || "";
   $("objectLabel").value = defaults.object_label || "box";
   $("targetFloor").value = defaults.target_floor ?? 5;
-  pickup.value = defaults.pickup_location || "room_402";
-  delivery.value = defaults.delivery_location || "room_501";
+  pickup.value = defaults.pickup_location || "home";
+  delivery.value = defaults.delivery_location || "object_place";
 
   renderFlow(config.mission_steps || []);
   state.configApplied = true;

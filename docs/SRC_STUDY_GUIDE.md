@@ -31,7 +31,7 @@
 | --- | --- |
 | 중앙서버가 주행 경로를 계산하나? | 아니다. Nav2가 계산한다. 중앙서버는 `/nav/go_to` task를 호출한다. |
 | 중앙서버가 팔 경로를 계산하나? | 아니다. MoveIt2가 `FollowJointTrajectory`를 만든다. 중앙서버의 `arm_can_bridge`는 CAN frame으로 변환한다. |
-| 엘리베이터 탑승/하차 FSM은 어디서 도나? | 실제로는 주행팀 task 서버가 `/elevator/ride`의 `RunTask.Feedback.phase`로 `WAIT_BOARD`, `BOARDING`, `RIDING`, `EXITING`, `DONE`을 내보내는 구조가 맞다. |
+| 엘리베이터 탑승/하차 FSM은 어디서 도나? | 지금 최종 flow에서는 중앙서버가 엘리베이터 절차를 `ENTER_ELEVATOR`, `WAIT_5F`, `SWITCH_5F_MAP`처럼 명시적인 mission state로 쪼개서 관리하고, 각 세부 동작은 주행/팔 task 서버가 담당한다. |
 | GUI는 ROS 노드인가? | 맞다. `vicpinky_gui_node`가 ROS action/service/topic을 붙잡고, 동시에 HTTP 서버로 웹 화면을 제공한다. |
 
 전체 연결은 이렇게 보면 된다.
@@ -42,7 +42,8 @@ GUI 또는 send_mission
   -> mission_manager
   -> /nav/go_to, /dock/align, /arm/pick,
      /arm/place, /arm/press_button,
-     /elevator/ride                      RunTask action
+     /elevator/wait_door_open,
+     /floor/check, /map/switch           RunTask action
   -> /mission/status                     MissionStatus topic
 ```
 
@@ -128,23 +129,27 @@ Cancel: 중간 취소
 7. 하나라도 실패하고 retry도 끝나면 미션은 `FAILED`.
 8. 모든 step이 성공하면 미션은 `DONE`.
 
-현재 엘리베이터 step은 하나의 task로 합쳐져 있다.
+현재 최종 엘리베이터 flow는 중앙서버 state로 명시되어 있다.
 
 ```yaml
-- state: RIDE_ELEVATOR
-  task: elevator_ride
-  target: elevator_ride
-  location: target_floor_marker
-  extra:
-    fsm_states:
-      - WAIT_BOARD
-      - BOARDING
-      - RIDING
-      - EXITING
-      - DONE
+- state: GO_TO_ELEVATOR_FRONT
+  task: go_to
+  target: elevator_front_4f
+  location: elevator_front_4f
+
+- state: WAIT_5F
+  task: check_floor
+  target: floor_5_marker
+  location: floor_5_marker
+
+- state: SWITCH_5F_MAP
+  task: map_switch
+  target: map_5f
+  location: map_5f
 ```
 
-이 뜻은 mission manager가 `WAIT_BOARD`, `BOARDING` 같은 세부 주행을 직접 구현하지 않고, `/elevator/ride` 서버가 내부 FSM을 돌리도록 맡긴다는 뜻이다.
+이 뜻은 mission manager가 "지금 어떤 절차를 실행 중인지"는 명시적으로 알고,
+실제 정렬/문 감지/층 확인/지도 전환 구현은 각 task server에 맡긴다는 뜻이다.
 
 ### 4.2 주행 연결 흐름
 
@@ -353,7 +358,11 @@ location: "$pickup_location"
 
 > Mission manager가 엘리베이터 FSM 상태를 직접 들고 있어야 하지 않나?
 
-지금 구조에서는 아니다. mission manager는 `RIDE_ELEVATOR`라는 큰 step만 알고, 세부 상태 `WAIT_BOARD -> BOARDING -> RIDING -> EXITING -> DONE`은 `/elevator/ride` 서버의 feedback phase로 올라오는 게 자연스럽다. 그래야 주행팀 FSM 변경이 mission manager 코드 변경으로 번지지 않는다.
+지금 최종 구조에서는 어느 정도 들고 있다. 중앙서버는
+`GO_TO_ELEVATOR_FRONT`, `ENTER_ELEVATOR`, `WAIT_5F`, `SWITCH_5F_MAP` 같은
+큰 절차 상태를 알고 순서를 관리한다. 대신 `/cmd_vel` 제어, ArUco 정렬,
+문 열림 판정, Nav2 map switching 같은 실제 구현은 `/dock/align`,
+`/elevator/wait_door_open`, `/floor/check`, `/map/switch` task server가 담당한다.
 
 #### `send_mission.py`, `send_demo_mission.py`
 
@@ -401,13 +410,13 @@ ros2 run mission_manager send_mission \
 | `cancel_callback()` | cancel 허용. |
 | `execute_callback()` | config에 적힌 phase를 순서대로 feedback으로 내보내고 result를 성공 처리. |
 
-엘리베이터 mock은 이런 식의 phase를 낸다.
+최종 mission mock은 이런 식으로 중앙서버 state가 진행된다.
 
 ```text
-WAIT_BOARD -> BOARDING -> RIDING -> EXITING -> DONE
+GO_TO_ELEVATOR_FRONT -> ... -> SWITCH_5F_MAP -> ... -> RETURN_HOME -> DONE
 ```
 
-그래서 GUI가 실제 주행팀 서버 없이도 Elevator FSM 표시를 테스트할 수 있다.
+그래서 GUI가 실제 주행팀 서버 없이도 Mission FSM 표시를 테스트할 수 있다.
 
 ### 5.4 `central_bringup`
 
@@ -537,7 +546,7 @@ mission manager는 "go_to라는 task"만 알아야 한다. Nav2를 쓰든 다른
 | mission form | mission_id, pickup, delivery, floor, object_label을 모아 start API 호출. |
 | arm buttons | enable, disable, home, clear_error, estop, status API 호출. |
 | mission rendering | 현재 미션 상태, progress, active task 표시. |
-| elevator FSM rendering | feedback phase/detail에서 `WAIT_BOARD`, `BOARDING`, `RIDING`, `EXITING`, `DONE`을 찾아 단계 표시. |
+| mission FSM rendering | mission state/feedback에서 최종 상태 머신 문자열을 찾아 단계 표시. |
 | board rendering | Board1/2/3 상태, queue, error, homing 표시. |
 | joint table | `/joint_states`의 joint position/velocity/effort 표시. |
 | event log | 최근 mission/arm event 표시. |
@@ -1178,7 +1187,10 @@ CAN은 UART처럼 TX/RX를 교차하지 않는다. 같은 버스에 `CAN_H`, `CA
 
 ### Q. 엘리베이터 FSM은 어디에 반영됐어?
 
-미션 flow에는 `RIDE_ELEVATOR` step 하나로 들어가고, 실제 FSM phase는 `/elevator/ride`의 `RunTask.Feedback.phase`로 올라오도록 설계했다. GUI는 `WAIT_BOARD`, `BOARDING`, `RIDING`, `EXITING`, `DONE` 문자열을 감지해 단계 표시한다.
+미션 flow에 `GO_TO_ELEVATOR_FRONT`, `ENTER_ELEVATOR`, `WAIT_5F`,
+`SWITCH_5F_MAP`, `RETURN_HOME` 같은 중앙서버 state로 반영되어 있다.
+GUI는 `/mission/status`와 `ExecuteMission.Feedback`의 state를 감지해
+Mission FSM으로 단계 표시한다.
 
 ### Q. `/nav/go_to`는 누가 제공해?
 
@@ -1256,7 +1268,7 @@ URDF, MoveIt config, arm_can_bridge YAML의 joint 이름이 모두 같아야 tra
 - `/mission/status`가 어디서 publish되는지 말할 수 있다.
 - `mission_flow.yaml`, `locations.yaml`, `action_servers.yaml`의 역할 차이를 설명할 수 있다.
 - mock 미션과 실제 Nav2 연결의 차이를 설명할 수 있다.
-- `/elevator/ride`와 엘리베이터 FSM phase가 어떻게 연결되는지 말할 수 있다.
+- `/dock/align`, `/floor/check`, `/map/switch`가 엘리베이터 flow에서 어떤 역할인지 말할 수 있다.
 - MoveIt controller action 이름 두 개를 말할 수 있다.
 - Board1/2/3 command/status CAN ID를 말할 수 있다.
 - `can_protocol.py`와 `trajectory_converter.py`의 책임 차이를 설명할 수 있다.

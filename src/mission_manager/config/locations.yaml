@@ -102,6 +102,51 @@ locations:
     marker_id: 40
     type: docking_target
 
+  inside_elevator_4f:
+    floor: 4
+    marker_id: 40
+    type: elevator_inside
+    extra:
+      tag_pose_topic: /tag_pose
+      cmd_vel_topic: /cmd_vel
+      localization_mode: aruco_odom
+
+  # 엘리베이터 내부 조작 패널 정렬용 target이다.
+  # 실제 내부 ArUco marker ID를 받으면 marker_id를 교체한다.
+  elevator_inside_panel:
+    floor: "$target_floor"
+    marker_id: -1
+    type: docking_target
+    extra:
+      tag_pose_topic: /tag_pose
+      cmd_vel_topic: /cmd_vel
+      localization_mode: aruco_odom
+
+  # 엘리베이터 내부 5층 버튼. 실제 marker/button ID를 받으면 교체한다.
+  elevator_button_5f:
+    floor: 4
+    marker_id: -1
+    type: button_target
+    extra:
+      button_floor: 5
+
+  floor_4_marker:
+    floor: 4
+    marker_id: 34
+    type: floor_marker
+    extra:
+      expected_floor: 4
+      floor_topic: /tag/floor_id
+
+  map_4f:
+    floor: 4
+    marker_id: -1
+    type: map_switch
+    extra:
+      map_name: 4F
+      map_yaml: 4F.yaml
+      initial_pose_location: elevator_front_4f
+
   dock_5f:
     floor: 5
     marker_id: -1
@@ -174,6 +219,31 @@ locations:
     floor: 5
     marker_id: -1
     type: docking_target
+
+  # 엘리베이터 내부 4층 버튼. 실제 marker/button ID를 받으면 교체한다.
+  elevator_button_4f:
+    floor: 5
+    marker_id: -1
+    type: button_target
+    extra:
+      button_floor: 4
+
+  floor_5_marker:
+    floor: 5
+    marker_id: 35
+    type: floor_marker
+    extra:
+      expected_floor: 5
+      floor_topic: /tag/floor_id
+
+  map_5f:
+    floor: 5
+    marker_id: -1
+    type: map_switch
+    extra:
+      map_name: 5F
+      map_yaml: 5F.yaml
+      initial_pose_location: elevator_front_5f
 
   target_floor_exit:
     floor: "$target_floor"

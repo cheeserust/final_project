@@ -43,6 +43,8 @@ setup(
         'console_scripts': [
             'arm_can_bridge_node = arm_can_bridge.arm_can_bridge_node:main',
             'send_test_trajectory = arm_can_bridge.send_test_trajectory:main',
+            'send_arm_pose = arm_can_bridge.send_arm_pose:main',
+            'send_gripper_pose = arm_can_bridge.send_gripper_pose:main',
             'board3_can_smoke_test = arm_can_bridge.board3_can_smoke_test:main',
         ],
     },

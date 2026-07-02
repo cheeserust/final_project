@@ -58,6 +58,8 @@ class ActiveCommand:
     target_pos: int
     speed: int
     remaining_s: float
+    start_pos: int
+    duration_s: float
 
 
 class Board1SimulatorModel:
@@ -320,6 +322,8 @@ class Board1SimulatorModel:
                 target_pos=0,
                 speed=0,
                 remaining_s=self.homing_duration_s,
+                start_pos=self.commanded_angle_raw[local_motor_id],
+                duration_s=self.homing_duration_s,
             )
 
         self.state = BoardState.MOVING
@@ -463,6 +467,8 @@ class Board1SimulatorModel:
                 target_pos=command.target_pos,
                 speed=command.speed,
                 remaining_s=command.duration_s,
+                start_pos=self.commanded_angle_raw[command.motor_id],
+                duration_s=command.duration_s,
             )
 
         if self._has_active_motion():
@@ -499,6 +505,18 @@ class Board1SimulatorModel:
             if command.remaining_s <= 0.0:
                 self.commanded_angle_raw[motor_id] = command.target_pos
                 self._active_by_motor[motor_id] = None
+                continue
+
+            elapsed_s = max(0.0, command.duration_s - command.remaining_s)
+            if command.duration_s <= 0.0:
+                ratio = 1.0
+            else:
+                ratio = max(0.0, min(1.0, elapsed_s / command.duration_s))
+
+            self.commanded_angle_raw[motor_id] = round(
+                command.start_pos
+                + (command.target_pos - command.start_pos) * ratio
+            )
 
         self._start_ready_commands()
 

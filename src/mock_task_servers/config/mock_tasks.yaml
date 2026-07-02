@@ -39,6 +39,14 @@ servers:
       - press
       - retreat
 
+  /arm/homing:
+    delay_sec: 3.0
+    success: true
+    phases:
+      - prepare
+      - homing
+      - ready
+
   /elevator/wait_door_open:
     delay_sec: 5.0
     success: true
@@ -47,16 +55,6 @@ servers:
       - checking_door
       - door_open
 
-  /elevator/ride:
-    delay_sec: 8.0
-    success: true
-    phases:
-      - WAIT_BOARD
-      - BOARDING
-      - RIDING
-      - EXITING
-      - DONE
-
   /floor/check:
     delay_sec: 2.0
     success: true
@@ -64,3 +62,11 @@ servers:
       - detect_marker
       - verify_floor
       - floor_confirmed
+
+  /map/switch:
+    delay_sec: 2.0
+    success: true
+    phases:
+      - load_map
+      - set_initial_pose
+      - map_ready

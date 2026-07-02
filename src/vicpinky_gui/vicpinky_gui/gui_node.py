@@ -345,8 +345,8 @@ class VicPinkyGuiNode(Node):
             'mission_steps': mission_steps,
             'default_goal': {
                 'mission_id': self._default_mission_id(),
-                'pickup_location': 'room_402',
-                'delivery_location': 'room_501',
+                'pickup_location': 'home',
+                'delivery_location': 'object_place',
                 'target_floor': 5,
                 'object_label': 'box',
             },

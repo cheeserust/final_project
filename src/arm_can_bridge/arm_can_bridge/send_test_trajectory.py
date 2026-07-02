@@ -2,16 +2,22 @@
 
 import math
 import sys
+import time
+from typing import Sequence
 
 from control_msgs.action import FollowJointTrajectory
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
 
 
 ARM_ACTION_NAME = '/arm_controller/follow_joint_trajectory'
 GRIPPER_ACTION_NAME = '/gripper_controller/follow_joint_trajectory'
+JOINT_STATES_TOPIC = '/joint_states'
+CURRENT_POSITION_TIMEOUT_SEC = 3.0
+TEST_DELTA_RAD = math.radians(10.0)
 
 ARM_JOINT_NAMES = [
     'base_joint',
@@ -19,6 +25,22 @@ ARM_JOINT_NAMES = [
     'arm_joint_2',
     'arm_joint_3',
     'arm_joint_4',
+]
+
+ARM_MIN_POSITIONS_RAD = [
+    math.radians(-90.0),
+    math.radians(-90.0),
+    math.radians(-80.0),
+    math.radians(-90.0),
+    math.radians(-170.0),
+]
+
+ARM_MAX_POSITIONS_RAD = [
+    math.radians(180.0),
+    math.radians(90.0),
+    math.radians(80.0),
+    math.radians(90.0),
+    math.radians(170.0),
 ]
 
 GRIPPER_JOINT_NAMES = [
@@ -31,6 +53,30 @@ GRIPPER_JOINT_NAMES = [
     'finger_3_base_joint',
     'finger_3_middle_joint',
     'finger_3_tip_joint',
+]
+
+GRIPPER_MIN_POSITIONS_RAD = [
+    math.radians(-70.3),
+    math.radians(-137.7),
+    math.radians(-111.3),
+    math.radians(-70.3),
+    math.radians(-137.7),
+    math.radians(-111.3),
+    math.radians(-70.3),
+    math.radians(-137.7),
+    math.radians(-111.3),
+]
+
+GRIPPER_MAX_POSITIONS_RAD = [
+    math.radians(70.3),
+    math.radians(52.7),
+    math.radians(111.3),
+    math.radians(70.3),
+    math.radians(52.7),
+    math.radians(111.3),
+    math.radians(70.3),
+    math.radians(52.7),
+    math.radians(111.3),
 ]
 
 
@@ -63,38 +109,28 @@ class TestTrajectoryClient(Node):
             )
             return 1
 
-        arm_result = self._send_arm_goal()
-        if arm_result != 0:
-            return arm_result
+        try:
+            arm_result = self._send_arm_goal()
+            if arm_result != 0:
+                return arm_result
 
-        return self._send_gripper_goal()
+            return self._send_gripper_goal()
+        except RuntimeError as exc:
+            self.get_logger().error(str(exc))
+            return 1
 
     def _send_arm_goal(self) -> int:
-        home = [
-            math.radians(-90.0),
-            math.radians(-90.0),
-            math.radians(-80.0),
-            math.radians(-90.0),
-            math.radians(-170.0),
-        ]
+        current = self._wait_for_current_positions(ARM_JOINT_NAMES)
+        target = self._offset_positions(
+            current,
+            ARM_MIN_POSITIONS_RAD,
+            ARM_MAX_POSITIONS_RAD,
+        )
 
         points = [
-            self._point(home, 0.0),
-            self._point([
-                math.radians(-60.0),
-                math.radians(-60.0),
-                math.radians(-40.0),
-                math.radians(-60.0),
-                math.radians(-120.0),
-            ], 1.0),
-            self._point([
-                math.radians(-30.0),
-                math.radians(-30.0),
-                math.radians(0.0),
-                math.radians(-30.0),
-                math.radians(-60.0),
-            ], 2.0),
-            self._point(home, 3.0),
+            self._point(current, 0.0),
+            self._point(target, 1.0),
+            self._point(current, 2.0),
         ]
 
         return self._send_goal(
@@ -105,36 +141,18 @@ class TestTrajectoryClient(Node):
         )
 
     def _send_gripper_goal(self) -> int:
-        home = [0.0 for _ in GRIPPER_JOINT_NAMES]
-
-        inner = [
-            math.radians(-20.0),
-            math.radians(-45.0),
-            math.radians(-30.0),
-            math.radians(-20.0),
-            math.radians(-45.0),
-            math.radians(-30.0),
-            math.radians(-20.0),
-            math.radians(-45.0),
-            math.radians(-30.0),
-        ]
-        outer = [
-            math.radians(20.0),
-            math.radians(20.0),
-            math.radians(30.0),
-            math.radians(20.0),
-            math.radians(20.0),
-            math.radians(30.0),
-            math.radians(20.0),
-            math.radians(20.0),
-            math.radians(30.0),
-        ]
+        current = self._wait_for_current_positions(GRIPPER_JOINT_NAMES)
+        target = self._offset_positions(
+            current,
+            GRIPPER_MIN_POSITIONS_RAD,
+            GRIPPER_MAX_POSITIONS_RAD,
+            preferred_direction=-1,
+        )
 
         points = [
-            self._point(home, 0.0),
-            self._point(inner, 1.0),
-            self._point(outer, 2.0),
-            self._point(home, 3.0),
+            self._point(current, 0.0),
+            self._point(target, 1.0),
+            self._point(current, 2.0),
         ]
 
         return self._send_goal(
@@ -143,6 +161,89 @@ class TestTrajectoryClient(Node):
             joint_names=GRIPPER_JOINT_NAMES,
             points=points,
         )
+
+    def _wait_for_current_positions(
+        self,
+        joint_names: Sequence[str],
+    ) -> list[float]:
+        target_names = tuple(str(name) for name in joint_names)
+        positions: list[float] | None = None
+
+        def callback(msg: JointState) -> None:
+            nonlocal positions
+
+            if positions is not None:
+                return
+
+            by_name = {
+                str(name): float(msg.position[index])
+                for index, name in enumerate(msg.name)
+                if index < len(msg.position)
+            }
+
+            if all(name in by_name for name in target_names):
+                positions = [by_name[name] for name in target_names]
+
+        subscription = self.create_subscription(
+            JointState,
+            JOINT_STATES_TOPIC,
+            callback,
+            10,
+        )
+        deadline = time.monotonic() + CURRENT_POSITION_TIMEOUT_SEC
+
+        try:
+            while (
+                positions is None
+                and rclpy.ok()
+                and time.monotonic() < deadline
+            ):
+                rclpy.spin_once(self, timeout_sec=0.1)
+        finally:
+            self.destroy_subscription(subscription)
+
+        if positions is None:
+            raise RuntimeError(
+                f'Timeout waiting for {JOINT_STATES_TOPIC} '
+                f'with joints {list(target_names)}'
+            )
+
+        self.get_logger().info(
+            f'Current positions for {list(target_names)}: {positions}'
+        )
+        return positions
+
+    @staticmethod
+    def _offset_positions(
+        current_positions: Sequence[float],
+        min_positions: Sequence[float],
+        max_positions: Sequence[float],
+        *,
+        preferred_direction: int = 1,
+    ) -> list[float]:
+        targets = []
+        primary_delta = TEST_DELTA_RAD
+        if preferred_direction < 0:
+            primary_delta = -TEST_DELTA_RAD
+        secondary_delta = -primary_delta
+
+        for current, minimum, maximum in zip(
+            current_positions,
+            min_positions,
+            max_positions,
+        ):
+            current_value = float(current)
+            minimum_value = float(minimum)
+            maximum_value = float(maximum)
+
+            if minimum_value <= current_value + primary_delta <= maximum_value:
+                targets.append(current_value + primary_delta)
+            elif minimum_value <= current_value + secondary_delta <= maximum_value:
+                targets.append(current_value + secondary_delta)
+            else:
+                targets.append(current_value)
+
+        return targets
 
     def _send_goal(
         self,

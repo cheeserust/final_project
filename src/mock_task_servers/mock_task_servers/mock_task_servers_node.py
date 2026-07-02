@@ -1,21 +1,19 @@
+from functools import partial
 import os
 import time
-from functools import partial
 
-import yaml
-
+from ament_index_python.packages import get_package_share_directory
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-
-from ament_index_python.packages import get_package_share_directory
-
 from vicpinky_interfaces.action import RunTask
+import yaml
 
 
 class MockTaskServers(Node):
+
     def __init__(self):
         super().__init__('mock_task_servers')
 

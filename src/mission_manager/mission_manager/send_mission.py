@@ -11,8 +11,8 @@ import yaml
 
 
 DEFAULT_FLOOR = 4
-DEFAULT_PICKUP_LOCATION = 'room_402'
-DEFAULT_DELIVERY_LOCATION = 'room_501'
+DEFAULT_PICKUP_LOCATION = 'home'
+DEFAULT_DELIVERY_LOCATION = 'object_place'
 
 FALLBACK_LOCATION_FLOORS = {
     'dock': 4,
@@ -23,12 +23,16 @@ FALLBACK_LOCATION_FLOORS = {
     'room_401': 4,
     'room_402': 4,
     'elevator_front_4f': 4,
+    'floor_4_marker': 4,
+    'map_4f': 4,
     'pickup_zone': 4,
     'dock_5f': 5,
     'object_place': 5,
     'object_place_5f': 5,
     'room_501': 5,
     'elevator_front_5f': 5,
+    'floor_5_marker': 5,
+    'map_5f': 5,
 }
 
 
@@ -49,8 +53,8 @@ class MissionClient(Node):
         mission_manager가 보내는 중간 진행 상황을 출력한다.
 
         예:
-          state=PICK_OBJECT
-          task=/arm/pick
+          state=ARM_TASK_AT_TARGET
+          task=/arm/place
           progress=0.23
         """
         feedback = feedback_msg.feedback

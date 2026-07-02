@@ -11,7 +11,10 @@
 
 | 문서 | 내용 |
 | --- | --- |
+| [docs/FINAL_MISSION_SCENARIO.md](docs/FINAL_MISSION_SCENARIO.md) | 4층/5층 엘리베이터 최종 미션 상태 머신과 Action 연동표 |
 | [docs/SRC_STUDY_GUIDE.md](docs/SRC_STUDY_GUIDE.md) | `src/` 패키지/파일/코드 흐름을 공부하기 위한 상세 가이드 |
+| [docs/CODE_FILE_GROUPS.md](docs/CODE_FILE_GROUPS.md) | 실제 운용용 코드와 테스트/개발용 파일 구분표 |
+| [docs/HARDWARE_BRINGUP.md](docs/HARDWARE_BRINGUP.md) | 실제 STM32/CAN 연결 후 하드웨어 테스트 절차 |
 | [PROJECT_ONBOARDING.md](PROJECT_ONBOARDING.md) | ROS 2 기본 개념, 패키지/노드/토픽/서비스/액션 설명 |
 | [ARM_CAN_PROTOCOL.md](ARM_CAN_PROTOCOL.md) | Board1/Board2/Board3 CAN 프로토콜 상세 |
 
@@ -46,7 +49,32 @@ src/
 | `pick` | `/arm/pick` | mock 제공 |
 | `place` | `/arm/place` | mock 제공 |
 | `press_button` | `/arm/press_button` | mock 제공 |
-| `elevator_ride` | `/elevator/ride` | 주행팀 엘리베이터 FSM 또는 mock |
+| `wait_door_open` | `/elevator/wait_door_open` | mock 제공, 실제 LiDAR 연결 예정 |
+| `check_floor` | `/floor/check` | mock 제공, 실제 floor tag 연결 예정 |
+| `map_switch` | `/map/switch` | mock 제공, 실제 Nav2 load_map 연결 예정 |
+
+최종 미션 flow는 아래 상태 머신을 따른다.
+
+```text
+GO_TO_ELEVATOR_FRONT
+ALIGN_ELEVATOR_TAG
+PRESS_ELEVATOR_CALL_BUTTON
+WAIT_ELEVATOR_OPEN
+ENTER_ELEVATOR
+ALIGN_INSIDE_ELEVATOR_TAG
+PRESS_5F_BUTTON
+WAIT_5F
+SWITCH_5F_MAP
+EXIT_ELEVATOR
+GO_TO_TARGET_PLACE
+ARM_TASK_AT_TARGET
+RETURN_TO_ELEVATOR
+PRESS_4F_BUTTON
+WAIT_4F
+SWITCH_4F_MAP
+RETURN_HOME
+DONE
+```
 
 ### VicPinky Navigation Adapter
 
@@ -183,20 +211,14 @@ ros2 run mission_manager send_demo_mission
 ros2 run mission_manager send_mission --list-locations
 ```
 
-기본 데모는 `room_402`에서 출발해 `room_501`로 가는 4층 -> 5층 미션이다.
-목적지가 4층이면 `--target-floor`를 생략해도 delivery location 기준으로 4층을 자동 추론하고, 엘리베이터 관련 step은 자동 skip된다.
+기본 데모는 4층 `home`에서 시작해 5층 `object_place`로 이동하고,
+팔 작업 후 4층 `home`으로 복귀하는 최종 엘리베이터 미션이다.
 
 ```bash
-# 402호에서 501호로 이동, target floor는 room_501 기준 5층으로 자동 추론
+# home에서 object_place로 이동, target floor는 object_place 기준 5층으로 자동 추론
 ros2 run mission_manager send_mission \
-  --pickup-location room_402 \
-  --delivery-location room_501 \
-  --object box
-
-# 402호에서 같은 4층의 401호로 이동, 엘리베이터 step 자동 skip
-ros2 run mission_manager send_mission \
-  --pickup-location room_402 \
-  --delivery-location room_401 \
+  --pickup-location home \
+  --delivery-location object_place \
   --object box
 ```
 
@@ -235,10 +257,10 @@ ros2 launch vicpinky_gui vicpinky_gui.launch.py port:=8081
 
 기본값은 `8080`이고, 이미 사용 중이면 `8081`, `8082` 순서로 빈 포트를 찾아 실행한다. 터미널에 출력되는 `VicPinky GUI ready: http://...` 주소를 열면 된다.
 
-주행팀 엘리베이터 FSM 상태는 `RunTask.Feedback.phase` 또는 feedback detail/status message에 아래 문자열로 들어오면 GUI의 `Elevator FSM` 영역에 자동 표시된다.
+중앙서버 최종 미션 상태는 `/mission/status` 또는 `ExecuteMission.Feedback`으로 올라오며 GUI의 `Mission FSM` 영역에 자동 표시된다.
 
 ```text
-WAIT_BOARD -> BOARDING -> RIDING -> EXITING -> DONE
+GO_TO_ELEVATOR_FRONT -> ... -> RETURN_HOME -> DONE
 ```
 
 ## 실제 VicPinky 주행 연결

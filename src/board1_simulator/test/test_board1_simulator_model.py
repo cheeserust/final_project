@@ -166,6 +166,25 @@ def test_board1_position_feedback_frames_report_actual_angles():
     assert [item.position_raw for item in feedback] == [-1550] * 4
 
 
+def test_board1_position_feedback_interpolates_during_motion():
+    model = Board1SimulatorModel(homing_duration_s=0.0)
+
+    model.handle_frame(pack_enable(True))
+    model.handle_frame(pack_homing(ALL_MOTORS))
+    send_board1_point(model, target_pos=3000, duration_ticks=20)
+    model.tick(0.05)
+
+    frames = model.build_position_feedback_frames()
+    feedback = [
+        unpack_motor_position_feedback(frame.data, board_id=1)
+        for frame in frames
+    ]
+
+    assert all(item.moving for item in feedback)
+    assert all(not item.target_reached for item in feedback)
+    assert [item.position_raw for item in feedback] == [1500] * 4
+
+
 def test_board1_position_feedback_can_be_split_into_two_frame_batches():
     model = Board1SimulatorModel(homing_duration_s=0.0)
 
@@ -316,6 +335,25 @@ def test_board3_position_feedback_frames_report_actual_angles():
     assert all(group.valid for group in feedback_groups)
     assert feedback_groups[0].positions_raw == (2500, 2500, 2500)
     assert feedback_groups[2].positions_raw == (2500, 2500, 2500)
+
+
+def test_board3_position_feedback_interpolates_during_motion():
+    model = make_board3_simulator_model()
+
+    model.handle_frame(pack_enable(True))
+    send_board3_point(model, target_pos=2500, duration_ticks=20)
+    model.tick(0.05)
+
+    frames = model.build_position_feedback_frames()
+    feedback_groups = [
+        unpack_board3_position_feedback(frame.data)
+        for frame in frames
+    ]
+
+    assert all(group.valid for group in feedback_groups)
+    assert feedback_groups[0].status_codes == (1, 1, 1)
+    assert feedback_groups[0].positions_raw == (1250, 1250, 1250)
+    assert feedback_groups[2].positions_raw == (1250, 1250, 1250)
 
 
 def test_board3_homing_creates_zero_degree_home_posture():
