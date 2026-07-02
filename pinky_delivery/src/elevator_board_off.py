@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # 엘리베이터 MVP: servoing 없이 cmd_vel + ArUco 검출만으로 동작 확인용
-# 상태흐름(FSM): 탑승마커 대기 → 전진탑승 →(180°회전 = 보류)→ 운행대기 → floor-id마커 검출 → 후진하차 + 맵로드
+# 상태흐름(FSM): 탑승마커 대기 → 전진탑승 → 운행대기 → floor-id마커 검출 → 후진하차 + 맵로드
 
 import rclpy
 from rclpy.node import Node
@@ -13,6 +13,26 @@ from typing import Optional
 from std_msgs.msg import Int32
 
 import cv2
+import numpy as np
+
+# 카메라 캘리브레이션 
+FRONT_CAMERA_MATRIX = np.array([
+    [708.85065781,   0.0,        308.289349  ],
+    [  0.0,        707.92630029, 244.0512732 ],
+    [  0.0,          0.0,          1.0       ]
+], dtype=np.float64)
+FRONT_DIST_COEFFS = np.array(
+    [0.02414867, 0.89713946, 0.00248749, -0.01085416, -2.32266594]
+)
+
+REAR_CAMERA_MATRIX = np.array([
+    [859.90806761,   0.0,        252.83359168],
+    [  0.0,        858.64794316, 248.03325075],
+    [  0.0,          0.0,          1.0       ]
+], dtype=np.float64)
+REAR_DIST_COEFFS = np.array(
+    [0.13899504, -0.77334006, 0.00611556, -0.01769451, 2.75664301]
+)
 
 
 # ── 설정값 (현장에 맞게 조정) ───────────────────────────────
@@ -20,116 +40,172 @@ BOARD_MARKER_ID   = 10          # 탑승용: 캐빈 안쪽 입구 위에 붙인 
 FRONT_IMAGE_TOPIC = "/front_camera/image_raw"   # 캐빈 안쪽 BOARD 마커용
 REAR_IMAGE_TOPIC  = "/rear_camera/image_raw"    # 복도 floor-id 마커용
 FLOOR_IDS = [4, 5]
-DRIVE_SPEED       = 0.3         # m/s, 안전하게 느리게
-BOARD_DRIVE_SEC   = 7.0          # 전진 탑승 시간(거리 = 속도×시간). 캐빈 깊이에 맞게
-EXIT_DRIVE_SEC    = 7.0          # 하차 주행 시간
+
+MARKER_LENGTH     = 0.1          # 마커 한 변 길이(m)
+TARGET_STOP_CM    = 50.0         # 마커까지 목표 거리(cm)
+STOP_TOLERANCE_CM = 3.0          # 허용 오차
+
+MAX_LINEAR        = 0.3          # m/s
+MIN_LINEAR        = 0.1          # m/s
+KP_LINEAR         = 0.01         # 거리 제어 비례 상수
+KP_ANGULAR        = 0.5          # 각도 제어 비례 상수
 
 DEBOUNCE_FRAMES   = 60            # 마커가 N프레임 연속 보여야 "진짜 보임"으로 인정 (오검출 방지)
+LOST_FRAMES       = 30            # 마커가 N프레임 연속 안 보여야 "사라짐"으로 인정 (오검출 방지)
 CONTROL_HZ        = 10.0
 # ────────────────────────────────────────────────────────────
 
 # FSM 상태 정의
 WAIT_BOARD = "WAIT_BOARD"   # 탑승 마커 대기 (= 출발층 문 열림 대기)
 BOARDING   = "BOARDING"     # 전진 탑승 중
-
 RIDING     = "RIDING"       # 운행 중, 도착층 floor-id 마커 대기
 EXITING    = "EXITING"      # 후진(또는 전진) 하차 중
 DONE       = "DONE"
 
+half = MARKER_LENGTH / 2.0
+OBJ_POINTS = np.array([
+    [-half,  half, 0],
+    [ half,  half, 0],
+    [ half, -half, 0],
+    [-half, -half, 0]
+], dtype=np.float64)
 
 class ElevatorMVP(Node):
     def __init__(self):
         super().__init__("elevator_mvp")
         self.bridge = CvBridge()
 
-        # ArUco 검출기 (OpenCV 4.7+ 신 API). pose 계산 안 함 → "마커 보이는가"만 판단.
         aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.detector = cv2.aruco.ArucoDetector(aruco_dict, cv2.aruco.DetectorParameters())
 
-        # I/O
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
-        # 카메라별 디바운스 카운트
-        self.front_seen = {}   # 앞 카메라
-        self.rear_seen  = {}   # 뒤 카메라
-
-        self.create_subscription(Image, FRONT_IMAGE_TOPIC,
-                                lambda m: self.image_cb(m, self.front_seen),
-                                qos_profile_sensor_data)
-        self.create_subscription(Image, REAR_IMAGE_TOPIC,
-                                lambda m: self.image_cb(m, self.rear_seen),
-                                qos_profile_sensor_data)        
         self.floor_pub = self.create_publisher(Int32, "/floor/arrived", 10)
 
-        # 상태 변수
+        # 디바운스(문 열림 판정용)
+        self.front_seen = {}
+        self.rear_seen  = {}
+
+        # 최신 pose 캐시: {marker_id: (tz_cm, tx_m, frame_idx)}
+        self.front_pose = {}
+        self.rear_pose  = {}
+        self.frame_idx = 0
+
+        self.create_subscription(Image, FRONT_IMAGE_TOPIC,
+                                lambda m: self.image_cb(m, self.front_seen, self.front_pose,
+                                                         FRONT_CAMERA_MATRIX, FRONT_DIST_COEFFS),
+                                qos_profile_sensor_data)
+        self.create_subscription(Image, REAR_IMAGE_TOPIC,
+                                lambda m: self.image_cb(m, self.rear_seen, self.rear_pose,
+                                                         REAR_CAMERA_MATRIX, REAR_DIST_COEFFS),
+                                qos_profile_sensor_data)
+
         self.state = WAIT_BOARD
+        self.target_floor: Optional[int] = None
 
-        self.phase_start: float = 0.0       # 현재 동작(주행/회전) 시작 시각
-        self.target_floor: Optional[int] = None      # 검출된 도착층
-
-        # 제어 루프 (이미지 콜백과 분리: 검출은 콜백, 판단/주행은 타이머)
         self.create_timer(1.0 / CONTROL_HZ, self.control_loop)
         self.get_logger().info("ElevatorMVP 시작. 상태=WAIT_BOARD")
 
-    # ── 이미지 콜백: 검출만 담당 ─────────────────────────────
-    def image_cb(self, msg, seen_dict):
+    # ── 이미지 콜백: 검출 + pose 계산 ─────────────────────────
+    def image_cb(self, msg, seen_dict, pose_dict, camera_matrix, dist_coeffs):
+        self.frame_idx += 1
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, ids, _ = self.detector.detectMarkers(gray)
-        now = {int(i) for i in ids.flatten()} if ids is not None else set()
-        # 해당 카메라의 디바운스 카운트만 갱신
-        for mid in set(seen_dict) | now:
-            seen_dict[mid] = seen_dict.get(mid, 0) + 1 if mid in now else 0
+        corners, ids, _ = self.detector.detectMarkers(gray)
+        now_ids = {int(i) for i in ids.flatten()} if ids is not None else set()
+
+        for mid in set(seen_dict) | now_ids:
+            seen_dict[mid] = seen_dict.get(mid, 0) + 1 if mid in now_ids else 0
+
+        if ids is None:
+            return
+
+        for i, marker_id in enumerate(ids.flatten()):
+            img_points = corners[i][0].astype(np.float64)
+            ok, rvec, tvec = cv2.solvePnP(
+                OBJ_POINTS, img_points, camera_matrix, dist_coeffs,
+                flags=cv2.SOLVEPNP_IPPE_SQUARE
+            )
+            if ok:
+                tz_cm = float(tvec[2][0]) * 100.0
+                tx_m  = float(tvec[0][0])
+                pose_dict[int(marker_id)] = (tz_cm, tx_m, self.frame_idx)
 
     def stable_seen(self, seen_dict, marker_id) -> bool:
         return seen_dict.get(marker_id, 0) >= DEBOUNCE_FRAMES
 
+    def get_fresh_pose(self, pose_dict, marker_id):
+        """최근 프레임에서 검출된 pose만 유효로 인정 (LOST 판단용)"""
+        entry = pose_dict.get(marker_id)
+        if entry is None:
+            return None
+        tz_cm, tx_m, seen_frame = entry
+        if self.frame_idx - seen_frame > LOST_FRAMES_LIMIT:
+            return None
+        return tz_cm, tx_m
+
+    # ── 서보잉 제어: 목표거리까지 P control ───────────────────
+    def servo_toward(self, tz_cm, tx_m, direction):
+        """direction: +1 전진(탑승), -1 후진(하차)"""
+        error_cm = tz_cm - TARGET_STOP_CM
+        if abs(error_cm) <= STOP_TOLERANCE_CM:
+            self.stop()
+            return True  # 도착
+
+        linear = KP_LINEAR * abs(error_cm)
+        linear = max(MIN_LINEAR, min(MAX_LINEAR, linear))
+        angular = -KP_ANGULAR * tx_m  # 마커가 오른쪽에 있으면(tx>0) 왼쪽으로 회전 보정
+
+        self.drive(linear=direction * linear, angular=angular)
+        return False
+
     # ── 제어 루프: FSM 전이 ─────────────────────────────────
     def control_loop(self):
-        t = self.get_clock().now().nanoseconds * 1e-9  # 현재 시각(초)
-
         if self.state == WAIT_BOARD:
-            if self.stable_seen(self.front_seen, BOARD_MARKER_ID):   # 앞 카메라
-                self.get_logger().info("문 열림 감지(앞: BOARD 마커) → 전진 탑승")
-                self.phase_start = t
+            if self.stable_seen(self.front_seen, BOARD_MARKER_ID):
+                self.get_logger().info("문 열림 감지(앞: BOARD 마커) → 서보잉 탑승 시작")
                 self.state = BOARDING
-    
+
         elif self.state == BOARDING:
-            if t - self.phase_start < BOARD_DRIVE_SEC:
-                self.drive(linear=DRIVE_SPEED) # 전진
-            else:
+            pose = self.get_fresh_pose(self.front_pose, BOARD_MARKER_ID)
+            if pose is None:
+                self.get_logger().warn("BOARD 마커 놓침 → 정지(안전)")
                 self.stop()
-                self.rear_seen.clear() # 후방 카메라 디바운스 카운트 초기화
-                self.state = RIDING    # 탄 상태 운행 대기
+                return
+            tz_cm, tx_m = pose
+            arrived = self.servo_toward(tz_cm, tx_m, direction=+1)
+            if arrived:
+                self.rear_seen.clear()
+                self.rear_pose.clear()
+                self.state = RIDING
                 self.get_logger().info("탑승 완료 → 운행 대기(RIDING)")
-        
+
         elif self.state == RIDING:
-            # 층 이동 후 문이 열리면 바깥 floor-id 마커가 보인다.
             for floor in FLOOR_IDS:
-                marker_id = floor    # 마커 ID = 층번호로 설정
+                marker_id = floor
                 if self.stable_seen(self.rear_seen, marker_id):
                     self.target_floor = floor
                     self.get_logger().info(f"도착 문 열림 감지 → {floor}층")
-                    self.phase_start = t
                     self.state = EXITING
                     break
 
         elif self.state == EXITING:
-           
-            if self.target_floor is None:        # 예외처리
+            if self.target_floor is None:
                 return
-            if t - self.phase_start < EXIT_DRIVE_SEC:
-                self.drive(linear=-DRIVE_SPEED) # 후진속도
-            else:
+            pose = self.get_fresh_pose(self.rear_pose, self.target_floor)
+            if pose is None:
+                self.get_logger().warn("층 마커 놓침 → 정지(안전)")
                 self.stop()
+                return
+            tz_cm, tx_m = pose
+            arrived = self.servo_toward(tz_cm, tx_m, direction=-1)
+            if arrived:
                 self.floor_pub.publish(Int32(data=self.target_floor))
-                # TODO(다음 단계): 저장된 출구 pose를 /initialpose로 publish → AMCL seed
                 self.state = DONE
                 self.get_logger().info(f"하차 완료 → /floor/arrived={self.target_floor} → DONE")
 
         elif self.state == DONE:
             self.stop()
 
-    # ── 헬퍼 ────────────────────────────────────────────────
     def drive(self, linear=0.0, angular=0.0):
         msg = Twist()
         msg.linear.x = linear
@@ -137,7 +213,7 @@ class ElevatorMVP(Node):
         self.cmd_pub.publish(msg)
 
     def stop(self):
-        self.cmd_pub.publish(Twist())  # 전부 0
+        self.cmd_pub.publish(Twist())
 
 
 def main():
