@@ -1,6 +1,0 @@
-../Core/Src/gpio.c:3:13:gpio_output	16	static
-../Core/Src/gpio.c:13:13:gpio_input_pullup	16	static
-../Core/Src/gpio.c:20:13:gpio_af5	16	static
-../Core/Src/gpio.c:33:6:gpio_init	8	static
-../Core/Src/gpio.c:81:6:motor_enable	4	static
-../Core/Src/gpio.c:86:6:motor_disable	4	static

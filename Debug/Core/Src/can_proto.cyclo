@@ -1,7 +1,0 @@
-../Core/Src/can_proto.c:6:16:get_i32_le	1
-../Core/Src/can_proto.c:15:17:get_u16_le	1
-../Core/Src/can_proto.c:20:13:put_i32_le	1
-../Core/Src/can_proto.c:29:6:can_send_status	1
-../Core/Src/can_proto.c:45:6:can_send_position_feedback	9
-../Core/Src/can_proto.c:79:6:can_send_position_feedback_all	2
-../Core/Src/can_proto.c:86:9:can_decode_frame	10
