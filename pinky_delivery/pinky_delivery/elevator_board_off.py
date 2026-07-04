@@ -14,6 +14,7 @@ from std_msgs.msg import Int32
 
 import cv2
 import numpy as np
+import math  
 
 # 카메라 캘리브레이션 
 # 로지텍
@@ -45,8 +46,13 @@ FLOOR_IDS = [4, 5]
 
 
 MARKER_LENGTH     = 0.1          # 마커 한 변 길이(m)
-TARGET_STOP_CM    = 50.0         # 마커까지 목표 거리(cm)
-STOP_TOLERANCE_CM = 3.0          # 허용 오차
+BOARDING_STOP_CM  = 50.0         # 승차시 목표 거리 (cm)
+EXIT_STOP_CM      = 160.0        # 하차시 목표 거리 (cm)
+STOP_TOLERANCE_CM = 1.5          # 허용 오차
+
+ROTATE_ANGULAR_SPEED = 0.4                                  
+ROTATE_ANGLE_DEG     = 90.0
+ROTATE_DURATION_SEC  = math.radians(ROTATE_ANGLE_DEG) / ROTATE_ANGULAR_SPEED
 
 MAX_LINEAR        = 0.3          # m/s
 MIN_LINEAR        = 0.1          # m/s
@@ -65,6 +71,8 @@ BOARDING   = "BOARDING"     # 전진 탑승 중
 RIDING     = "RIDING"       # 운행 중, 도착층 floor-id 마커 대기
 EXITING    = "EXITING"      # 후진(또는 전진) 하차 중
 DONE       = "DONE"
+ROTATING   = "ROTATING"       # 하차 후 회전
+
 FRONT_STATES = (WAIT_BOARD, BOARDING)
 REAR_STATES  = (RIDING, EXITING)
 
@@ -160,9 +168,9 @@ class ElevatorMVP(Node):
     
 
     # ── 서보잉 제어: 목표거리까지 P control ───────────────────
-    def servo_toward(self, tz_cm, tx_m, direction):
+    def servo_toward(self, tz_cm, tx_m, direction, target_cm):
         """direction: +1 전진(탑승), -1 후진(하차)"""
-        error_cm = tz_cm - TARGET_STOP_CM
+        error_cm = tz_cm - target_cm
         if abs(error_cm) <= STOP_TOLERANCE_CM:
             self.stop()
             return True  # 도착
@@ -188,7 +196,8 @@ class ElevatorMVP(Node):
                 self.stop()
                 return
             tz_cm, tx_m = pose
-            arrived = self.servo_toward(tz_cm, tx_m, direction=+1)
+            self.get_logger().info(f"[BOARDING] 남은거리: {tz_cm:.1f}cm")
+            arrived = self.servo_toward(tz_cm, tx_m, direction = +1, target_cm = BOARDING_STOP_CM) # 탑승 방향은 +1
             if arrived:
                 self.rear_seen.clear()
                 self.rear_pose.clear()
@@ -212,11 +221,21 @@ class ElevatorMVP(Node):
                 self.stop()
                 return
             tz_cm, tx_m = pose
-            arrived = self.servo_toward(tz_cm, tx_m, direction=-1)
+            arrived = self.servo_toward(tz_cm, tx_m, direction = -1, target_cm = EXIT_STOP_CM)
             if arrived:
                 self.floor_pub.publish(Int32(data=self.target_floor))
+                self.rotate_start_time = self.get_clock().now()
+                self.state = ROTATING
+                self.get_logger().info(f"하차 완료 → /floor/arrived={self.target_floor} → ROTATING(좌 90도)")
+
+        elif self.state == ROTATING:
+            elapsed = (self.get_clock().now() - self.rotate_start_time).nanoseconds / 1e9
+            if elapsed < ROTATE_DURATION_SEC:
+                self.drive(angular=ROTATE_ANGULAR_SPEED)   # REP103: +angular.z = 반시계 = 좌회전
+            else:
+                self.stop()
                 self.state = DONE
-                self.get_logger().info(f"하차 완료 → /floor/arrived={self.target_floor} → DONE")
+                self.get_logger().info("좌회전 90도 완료 → DONE")
 
         elif self.state == DONE:
             self.stop()
