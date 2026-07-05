@@ -339,7 +339,7 @@ Disable 수신 시 STM32는 queue clear, step 정지, motor disable을 수행합
 - Enable 상태가 아니거나 ESTOP 상태이면 `ERR_INVALID_CMD`로 처리합니다.
 - mode가 `0`이 아니면 `ERR_INVALID_CMD`로 처리합니다.
 
-Homing 완료 시 Board1은 local motor 0~3의 `homing_done`을 1로 설정하고 status의 Homing Done Bits bit0~3으로 보고합니다.
+Homing 완료 시 Board1은 local motor 0~3의 `homing_done`을 1로 설정하고 status의 축별 axis flags bit0(Position Valid / Homed)으로 보고합니다.
 
 ### Clear Error Broadcast, CAN ID `0x030`
 
@@ -363,12 +363,21 @@ STM32는 100ms마다 status를 송신하고, ESTOP/Enable/Homing/Clear Error/Que
 |---:|---|---|
 | 0 | State | 현재 보드 상태 |
 | 1 | Error Code | 현재 error code |
-| 2 | Homing Done Bits | Board1: bit0~3 = axis0~3 homing done, Board2: bit0 = axis0 homing done, Board3: servo ready bits 또는 reserved |
-| 3 | Moving Motor ID | 이동 또는 homing 중인 첫 motor id, 없으면 `255` |
+| 2 | Board1 Axis Flags 0/1 | Board1: low nibble = axis0 flags, high nibble = axis1 flags. Board2: bit0 = axis0 homing done, Board3: servo ready bits 또는 reserved |
+| 3 | Board1 Axis Flags 2/3 | Board1: low nibble = axis2 flags, high nibble = axis3 flags. Board2: moving motor id, 없으면 `255` |
 | 4 | Limit Status Bits | Board1: bit0~3 = axis0~3 limit active, Board2: bit0 = axis0 limit active, Board3: servo fault bits 또는 reserved |
 | 5 | Queue Free | trajectory queue 남은 슬롯 수 |
 | 6 | Enabled | 공통 motor enable 상태. `0`: disabled, `1`: enabled |
-| 7 | Reserved | 현재 `0` |
+| 7 | Status Sequence | Board1: 송신 순서 counter. Board2/3: reserved `0` |
+
+Board1 axis flags는 축당 4bit입니다.
+
+| Bit | 이름 | 의미 |
+|---:|---|---|
+| 0 | Position Valid / Homed | `1`: homing 완료, current position 값을 actual position으로 사용 가능 |
+| 1 | Ready | `1`: homed + enabled + error 없음 |
+| 2 | Moving | `1`: 이동 또는 homing 중 |
+| 3 | Target Reached | `1`: 목표 위치 도달 |
 
 ### State Values
 
@@ -396,38 +405,30 @@ STM32는 100ms마다 status를 송신하고, ESTOP/Enable/Homing/Clear Error/Que
 
 ## 10. STM32 -> RPi Current Position Feedback, CAN ID `0x301` / `0x302` / `0x303`
 
-기존 `0x201` / `0x202` / `0x203` status frame은 그대로 유지합니다. MoveIt2 `/joint_states`의 actual position 입력을 위해 별도 current position feedback frame을 추가합니다.
+MoveIt2 `/joint_states`의 actual position 입력을 위해 별도 current position feedback frame을 송신합니다.
 
-Board1 펌웨어는 100ms 주기 status 송신 직후 `0x301` frame을 local motor `0 -> 1 -> 2 -> 3` 순서로 4개 송신합니다.
+Board1 펌웨어는 100ms 주기마다 `0x301` compact position frame 1개를 송신합니다.
 
 | Board ID | Position Feedback CAN ID | 송신 frame |
 |---:|---:|---|
-| `1` | `0x301` | Board1 local motor `0~3`, 4 frames |
+| `1` | `0x301` | Board1 local motor `0~3` compact, 1 frame |
 | `2` | `0x302` | Board2 local motor `0`, 1 frame |
 | `3` | `0x303` | Board3 local motor `0~8`, 9 frames |
+
+아래 payload 표는 Board1 `0x301` compact format입니다. Board2/Board3는 별도 compact format을 구현하기 전까지 기존 per-axis position feedback format을 유지합니다.
 
 DLC는 8입니다.
 
 | Byte | 필드 | 자료형 | 설명 |
 |---:|---|---|---|
-| 0 | Local Motor ID | `uint8_t` | 해당 보드 기준 local motor id |
-| 1 | Flags | `uint8_t` | position valid / homed / moving / target reached |
-| 2 | Current Pos LSB | `int32_t` 일부 | little endian |
-| 3 | Current Pos | `int32_t` 일부 | little endian |
-| 4 | Current Pos | `int32_t` 일부 | little endian |
-| 5 | Current Pos MSB | `int32_t` 일부 | little endian |
-| 6 | Error / Fault Code | `uint8_t` | error code, 없으면 `0` |
-| 7 | Sequence Counter | `uint8_t` | 송신 순서 확인용 counter |
-
-### Position Feedback Flags, Byte 1
-
-| Bit | 이름 | 의미 |
-|---:|---|---|
-| 0 | Position Valid | `1`: current position 값을 MoveIt2 actual position으로 사용 가능 |
-| 1 | Homed / Ready | `1`: homing 완료 또는 servo ready |
-| 2 | Moving | `1`: 이동 또는 homing 중 |
-| 3 | Target Reached | `1`: 목표 위치 도달 |
-| 4~7 | Reserved | 현재 `0` |
+| 0 | Axis0 Current Pos LSB | `int16_t` 일부 | little endian, 단위 `0.01도` |
+| 1 | Axis0 Current Pos MSB | `int16_t` 일부 | little endian |
+| 2 | Axis1 Current Pos LSB | `int16_t` 일부 | little endian, 단위 `0.01도` |
+| 3 | Axis1 Current Pos MSB | `int16_t` 일부 | little endian |
+| 4 | Axis2 Current Pos LSB | `int16_t` 일부 | little endian, 단위 `0.01도` |
+| 5 | Axis2 Current Pos MSB | `int16_t` 일부 | little endian |
+| 6 | Axis3 Current Pos LSB | `int16_t` 일부 | little endian, 단위 `0.01도` |
+| 7 | Axis3 Current Pos MSB | `int16_t` 일부 | little endian |
 
 `current_pos_001deg`는 모터 step 값이 아니라 중앙서버 / MoveIt2 joint 기준 출력축 각도입니다. 단위는 command `target_pos`와 같은 0.01도입니다.
 
@@ -446,11 +447,10 @@ Board1 예시:
 
 ```text
 CAN ID = 0x301
-Byte0 = 0
-Byte1 = 0x0B  // valid + homed + target reached
-Byte2~5 = 3000 = B8 0B 00 00
-Byte6 = 0
-Byte7 = sequence counter
+axis0 = 3000  = B8 0B
+axis1 = -1550 = F2 F9
+axis2 = 0     = 00 00
+axis3 = 17000 = 68 42
 ```
 
 ## 11. Queue and Error Policy
@@ -508,7 +508,7 @@ Board3 command 규칙:
 - TIM3 1ms trajectory 선형 보간
 - TIM2 10us STEP/DIR pulse 생성
 - Homing 및 limit switch debounce
-- 100ms 주기 status 및 current position feedback 송신
+- 100ms 주기 compact status 및 compact current position feedback 송신
 - PC용 간단 프로토콜 테스트 `board1_virtual_can_test.c`
 
 아직 초기 구현에서 제한적으로 처리하는 내용:
