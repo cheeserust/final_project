@@ -13,7 +13,6 @@ typedef struct {
     TrajectoryPoint points[TRAJECTORY_POINT_QUEUE_SIZE];
     volatile uint8_t head;
     volatile uint8_t tail;
-    volatile uint8_t count;
 } TrajectoryPointRingQueue;
 
 #if BOARD_ID == 1
@@ -36,21 +35,24 @@ static TrajectoryPoint g_current_trajectory_point; // 현재 실행 중인 명�
 
 static uint8_t trajectory_point_queue_push(const TrajectoryPoint *point)
 {
-    if (g_trajectory_point_ring_queue.count >= TRAJECTORY_POINT_QUEUE_SIZE) return 0;
+    uint8_t tail = g_trajectory_point_ring_queue.tail;
+    uint8_t next_tail = (uint8_t)((tail + 1) % TRAJECTORY_POINT_QUEUE_SIZE);
 
-    g_trajectory_point_ring_queue.points[g_trajectory_point_ring_queue.tail] = *point;
-    g_trajectory_point_ring_queue.tail = (uint8_t)((g_trajectory_point_ring_queue.tail + 1) % TRAJECTORY_POINT_QUEUE_SIZE);
-    g_trajectory_point_ring_queue.count++;
+    if (next_tail == g_trajectory_point_ring_queue.head) return 0;
+
+    g_trajectory_point_ring_queue.points[tail] = *point;
+    g_trajectory_point_ring_queue.tail = next_tail;
     return 1;
 }
 
 static uint8_t trajectory_point_queue_pop(TrajectoryPoint *point)
 {
-    if (g_trajectory_point_ring_queue.count == 0) return 0;
+    uint8_t head = g_trajectory_point_ring_queue.head;
 
-    *point = g_trajectory_point_ring_queue.points[g_trajectory_point_ring_queue.head];
-    g_trajectory_point_ring_queue.head = (uint8_t)((g_trajectory_point_ring_queue.head + 1) % TRAJECTORY_POINT_QUEUE_SIZE);
-    g_trajectory_point_ring_queue.count--;
+    if (head == g_trajectory_point_ring_queue.tail) return 0;
+
+    *point = g_trajectory_point_ring_queue.points[head];
+    g_trajectory_point_ring_queue.head = (uint8_t)((head + 1) % TRAJECTORY_POINT_QUEUE_SIZE);
     return 1;
 }
 
@@ -92,14 +94,22 @@ void trajectory_clear(void)
 {
     g_trajectory_point_ring_queue.head = 0;
     g_trajectory_point_ring_queue.tail = 0;
-    g_trajectory_point_ring_queue.count = 0;
     reset_pending_trajectory_point();
     trajectory_stop_motion();
 }
 
 uint8_t get_free_axis_command_count(void)
 {
-    return (uint8_t)((TRAJECTORY_POINT_QUEUE_SIZE - g_trajectory_point_ring_queue.count) * BOARD_STAGING_FRAME_COUNT);
+    uint8_t head = g_trajectory_point_ring_queue.head;
+    uint8_t tail = g_trajectory_point_ring_queue.tail;
+    uint8_t used_points;
+    uint8_t free_points;
+
+    if (tail >= head) used_points = (uint8_t)(tail - head);
+    else used_points = (uint8_t)(TRAJECTORY_POINT_QUEUE_SIZE - head + tail);
+
+    free_points = (uint8_t)((TRAJECTORY_POINT_QUEUE_SIZE - 1) - used_points);
+    return (uint8_t)(free_points * BOARD_STAGING_FRAME_COUNT);
 }
 
 int32_t angle_to_step(uint8_t axis_id, int32_t angle_raw)
@@ -285,9 +295,9 @@ void trajectory_1ms_interrupt(void)
         }
         g_motion_active = 0;
         stepper_cancel_motion();
-        if (g_trajectory_point_ring_queue.count == 0) {
+        if (!trajectory_point_queue_pop(&point)) {
             g_state = STATE_IDLE;
-        } else if (trajectory_point_queue_pop(&point)) {
+        } else {
             g_current_trajectory_point = point;
 
             for (uint8_t i = 0; i < AXIS_COUNT; i++) {

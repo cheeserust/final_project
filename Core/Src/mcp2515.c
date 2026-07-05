@@ -565,6 +565,7 @@ void spi2_init(void)
     SPI2->CR1 |= SPI_CR1_SPE;
 }
 
+// 데이터가 can 모듈 들어오면 INT핀이 LOW로 떨어짐 -> exti 인터럽트 걸림
 #if BOARD_ID == 2
 void EXTI4_IRQHandler(void)
 #else

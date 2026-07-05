@@ -98,19 +98,20 @@ int main(void)
 
         uart_debug_service(debug_uart);
 
-        // 1. MCP2515가 CAN 메시지를 받았는지 확인: EXTI flag + INT level fallback
+        // 1. MCP2515가 CAN 메시지를 받았는지 확인: EXTI쪽 flag or INT가 low인지 확인
         if (g_mcp2515_irq_pending || mcp2515_int_asserted()) {
             g_mcp2515_irq_pending = 0;
 
-            // 2. 한 loop에서 CAN RX만 계속 처리하느라 주기 송신이 굶지 않게 제한
-            rx_budget = 8; 
-            while (rx_budget > 0 && mcp2515_read_frame(&rx)) {
+            // 2. 한 번에 8개만 읽기
+            rx_budget = 8;
+            while (rx_budget > 0 && mcp2515_read_frame(&rx))// 읽을 프레임이 있으면 1,
+            { 
                 rx_budget--;
                 board_can_handle_frame(&rx);
             }
         }
 
-        // 4. 다축 이동 명령이 중간에 끊겼는지 확인
+        // 4. 축 이동 명령이 중간에 끊겼는지 확인
         if (trajectory_handle_staging_timeout()) {
             board_can_request_status_event();  // 다축 명령 수신 타임아웃 발생 시 상태 송신
         }
