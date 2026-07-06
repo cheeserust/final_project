@@ -1,0 +1,10 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: roscue_arm_description
+    relative_path: urdf/roscue_arm.urdf.xacro
+  srdf:
+    relative_path: config/roscue_arm.srdf
+  package_settings:
+    author_name: Hari
+    author_email: hari@roscue.com
+    generated_timestamp: 1782548532

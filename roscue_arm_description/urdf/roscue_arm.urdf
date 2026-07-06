@@ -1,0 +1,593 @@
+<?xml version="1.0"?>
+<robot name="roscue_arm">
+
+  <!-- Materials -->
+  <material name="Aluminum_6061">
+    <color rgba="0.961 0.961 0.965 1.0"/>
+  </material>
+  <material name="pla_plus">
+    <color rgba="0.941 0.933 0.914 1.0"/>
+  </material>
+  <material name="Steel">
+    <color rgba="0.627 0.627 0.627 1.0"/>
+  </material>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.085592 -0.000006 0.033051" rpy="0 0 0"/>
+      <mass value="2.059958"/>
+      <inertia ixx="9.903517e-03" ixy="-2.704119e-06" ixz="-7.021209e-03"
+               iyy="2.508404e-02" iyz="-5.074094e-07" izz="2.166122e-02"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.000000 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/base_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="Aluminum_6061"/>
+    </visual>
+    <collision>
+      <origin xyz="0.000000 0.000000 0.000000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/base_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="first_link">
+    <inertial>
+      <origin xyz="0.004239 0.000002 0.047508" rpy="0 0 0"/>
+      <mass value="2.740366"/>
+      <inertia ixx="8.847475e-03" ixy="-2.706351e-07" ixz="-7.679844e-05"
+               iyy="1.074798e-02" iyz="5.141790e-07" izz="7.944490e-03"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.000000 0.000000 -0.027000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/first_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="Aluminum_6061"/>
+    </visual>
+    <collision>
+      <origin xyz="0.000000 0.000000 -0.027000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/first_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="second_link">
+    <inertial>
+      <origin xyz="0.090440 0.027174 0.062055" rpy="0 0 0"/>
+      <mass value="2.121384"/>
+      <inertia ixx="7.133714e-03" ixy="-5.709297e-04" ixz="-1.241331e-03"
+               iyy="1.865493e-02" iyz="-1.829145e-03" izz="1.667169e-02"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.000000 -0.000000 -0.015000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/second_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="Aluminum_6061"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.000000 -0.000000 -0.015000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/second_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="third_link">
+    <inertial>
+      <origin xyz="0.000004 0.054418 0.100360" rpy="0 0 0"/>
+      <mass value="1.052809"/>
+      <inertia ixx="8.554377e-03" ixy="2.966167e-07" ixz="6.240968e-07"
+               iyy="7.514592e-03" iyz="-1.419918e-03" izz="1.358899e-03"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.000000 0.021500 -0.380000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/third_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="0.000000 0.021500 -0.380000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/third_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="fourth_link">
+    <inertial>
+      <origin xyz="0.000000 -0.007427 0.049250" rpy="0 0 0"/>
+      <mass value="0.211718"/>
+      <inertia ixx="1.090154e-04" ixy="1.383154e-10" ixz="3.069742e-11"
+               iyy="1.109803e-04" iyz="-5.814571e-07" izz="5.571132e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.000000 0.002500 -0.560000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/fourth_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="0.000000 0.002500 -0.560000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/fourth_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="gripper_base_link">
+    <inertial>
+      <origin xyz="0.000002 0.000038 0.019700" rpy="0 0 0"/>
+      <mass value="0.198410"/>
+      <inertia ixx="1.885169e-04" ixy="-2.077551e-08" ixz="-6.621486e-08"
+               iyy="1.864991e-04" iyz="5.126721e-07" izz="1.532954e-04"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.057129 0.166814 -0.015000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/gripper_base_link.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="Steel"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.057129 0.166814 -0.015000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/roscue_arm/gripper_base_link.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="hand_finger_link_1_1_1">
+    <inertial>
+      <origin xyz="0.019858 0.004717 0.027085" rpy="0 0 0"/>
+      <mass value="0.046695"/>
+      <inertia ixx="2.642565e-05" ixy="-2.080413e-06" ixz="-5.970376e-06"
+               iyy="2.484809e-05" iyz="-2.046743e-06" izz="1.899311e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.133950 0.019050 0.009800" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_base_link/hand_finger_link_1_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.133950 0.019050 0.009800" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_base_link/hand_finger_link_1_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="hand_finger_link_2_1_1">
+    <inertial>
+      <origin xyz="0.019858 0.000976 0.023285" rpy="0 0 0"/>
+      <mass value="0.046695"/>
+      <inertia ixx="2.555917e-05" ixy="-3.948892e-07" ixz="-5.970376e-06"
+               iyy="2.484809e-05" iyz="-4.392923e-07" izz="1.812663e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.133950 0.012050 0.006000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_base_link/hand_finger_link_2_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.133950 0.012050 0.006000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_base_link/hand_finger_link_2_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="hand_finger_link_3_1_1">
+    <inertial>
+      <origin xyz="0.019858 0.004717 0.023285" rpy="0 0 0"/>
+      <mass value="0.046695"/>
+      <inertia ixx="2.642565e-05" ixy="-2.080413e-06" ixz="-5.970376e-06"
+               iyy="2.484809e-05" iyz="-2.046743e-06" izz="1.899311e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.133950 0.019050 0.006000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_base_link/hand_finger_link_3_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.133950 0.019050 0.006000" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_base_link/hand_finger_link_3_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger1_link_1_1">
+    <inertial>
+      <origin xyz="-0.024621 0.015930 -0.000043" rpy="0 0 0"/>
+      <mass value="0.042171"/>
+      <inertia ixx="6.544513e-06" ixy="-4.094667e-07" ixz="-3.882140e-08"
+               iyy="1.978938e-05" iyz="-3.776827e-08" izz="2.393266e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_middle_link/finger1_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_middle_link/finger1_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger2_link_1_1">
+    <inertial>
+      <origin xyz="-0.024621 0.015930 -0.000043" rpy="0 0 0"/>
+      <mass value="0.042171"/>
+      <inertia ixx="6.544513e-06" ixy="-4.094667e-07" ixz="-3.882140e-08"
+               iyy="1.978938e-05" iyz="-3.776827e-08" izz="2.393266e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_middle_link/finger2_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_middle_link/finger2_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger3_link_1_1">
+    <inertial>
+      <origin xyz="-0.024621 0.015930 -0.000043" rpy="0 0 0"/>
+      <mass value="0.042171"/>
+      <inertia ixx="6.544513e-06" ixy="-4.094667e-07" ixz="-3.882140e-08"
+               iyy="1.978938e-05" iyz="-3.776827e-08" izz="2.393266e-05"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_middle_link/finger3_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.003000 -0.106625 -0.014350" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_middle_link/finger3_link_1_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger1_link_2_1">
+    <inertial>
+      <origin xyz="-0.014665 0.020300 -0.000601" rpy="0 0 0"/>
+      <mass value="0.029336"/>
+      <inertia ixx="2.544761e-06" ixy="5.067558e-07" ixz="-3.602612e-07"
+               iyy="7.507799e-06" iyz="2.534948e-08" izz="8.600929e-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_tip_link/finger1_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_1_tip_link/finger1_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger2_link_2_1">
+    <inertial>
+      <origin xyz="-0.014665 0.020300 -0.000601" rpy="0 0 0"/>
+      <mass value="0.029336"/>
+      <inertia ixx="2.544761e-06" ixy="5.067558e-07" ixz="-3.602612e-07"
+               iyy="7.507799e-06" iyz="2.534948e-08" izz="8.600929e-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_tip_link/finger2_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_2_tip_link/finger2_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <link name="finger3_link_2_1">
+    <inertial>
+      <origin xyz="-0.014665 0.020300 -0.000601" rpy="0 0 0"/>
+      <mass value="0.029336"/>
+      <inertia ixx="2.544761e-06" ixy="5.067558e-07" ixz="-3.602612e-07"
+               iyy="7.507799e-06" iyz="2.534948e-08" izz="8.600929e-06"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_tip_link/finger3_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+      <material name="pla_plus"/>
+    </visual>
+    <collision>
+      <origin xyz="0.060000 -0.102375 -0.014250" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://roscue_arm_description/meshes/finger_3_tip_link/finger3_link_2_1.dae" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="first_link"/>
+    <origin xyz="0.000000 0.000000 0.027000" rpy="0.000000 -0.000000 0.000000"/>
+    <axis xyz="0.000000 0.000000 -1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="arm_joint_1" type="continuous">
+    <parent link="first_link"/>
+    <child link="second_link"/>
+    <origin xyz="-0.065000 0.000000 0.063000" rpy="0.000000 -1.570796 0.000000"/>
+    <axis xyz="-0.000000 -0.000000 -1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="arm_joint_2" type="continuous">
+    <parent link="second_link"/>
+    <child link="third_link"/>
+    <origin xyz="0.340500 0.000000 0.058500" rpy="-1.570796 -0.000000 -1.570796"/>
+    <axis xyz="0.000000 1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="arm_joint_3" type="continuous">
+    <parent link="third_link"/>
+    <child link="fourth_link"/>
+    <origin xyz="-0.000500 0.019500 0.180000" rpy="-0.000000 0.000000 0.000000"/>
+    <axis xyz="0.000000 1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="arm_joint_4" type="continuous">
+    <parent link="fourth_link"/>
+    <child link="gripper_base_link"/>
+    <origin xyz="-0.000000 0.002500 0.090000" rpy="0.000000 -0.000000 1.570796"/>
+    <axis xyz="-0.000000 0.000000 1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_1_base_joint" type="continuous">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_1_1_1"/>
+    <origin xyz="-0.000308 0.047572 0.011400" rpy="0.000000 -0.000000 1.570796"/>
+    <axis xyz="0.000000 0.000000 1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_base_joint" type="continuous">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_2_1_1"/>
+    <origin xyz="0.040983 -0.024158 0.015200" rpy="0.000000 -0.000000 -0.523599"/>
+    <axis xyz="0.000000 -0.000000 1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_base_joint" type="continuous">
+    <parent link="gripper_base_link"/>
+    <child link="hand_finger_link_3_1_1"/>
+    <origin xyz="-0.040913 -0.024275 0.015200" rpy="0.000000 0.000000 -2.617994"/>
+    <axis xyz="0.000000 -0.000000 1.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_1_middle_joint" type="continuous">
+    <parent link="hand_finger_link_1_1_1"/>
+    <child link="finger1_link_1_1"/>
+    <origin xyz="0.035050 0.021150 0.060800" rpy="0.000000 0.000000 -3.141593"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_middle_joint" type="continuous">
+    <parent link="hand_finger_link_2_1_1"/>
+    <child link="finger2_link_1_1"/>
+    <origin xyz="0.035050 0.014150 0.057000" rpy="0.000000 -0.000000 -3.141593"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_middle_joint" type="continuous">
+    <parent link="hand_finger_link_3_1_1"/>
+    <child link="finger3_link_1_1"/>
+    <origin xyz="0.035050 0.021150 0.057000" rpy="0.000000 0.000000 3.141593"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_1_tip_joint" type="continuous">
+    <parent link="finger1_link_1_1"/>
+    <child link="finger1_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 0.000000"/>
+    <axis xyz="-0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_2_tip_joint" type="continuous">
+    <parent link="finger2_link_1_1"/>
+    <child link="finger2_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 -0.000000"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <joint name="finger_3_tip_joint" type="continuous">
+    <parent link="finger3_link_1_1"/>
+    <child link="finger3_link_2_1"/>
+    <origin xyz="-0.063000 -0.001525 -0.000300" rpy="0.000000 0.000000 -0.000000"/>
+    <axis xyz="0.000000 -1.000000 0.000000"/>
+    <limit effort="100.0" velocity="1.00"/>
+  </joint>
+
+  <!-- ROS 2 control: generated generic system -->
+  <ros2_control name="roscue_arm_system" type="system">
+    <hardware>
+      <plugin>mock_components/GenericSystem</plugin>
+      <param name="cmd_topic">sim/roscue_arm_system/cmd</param>
+      <param name="state_topic">sim/roscue_arm_system/state</param>
+    </hardware>
+
+    <joint name="arm_joint_1">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="arm_joint_2">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="arm_joint_3">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="arm_joint_4">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_1_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_1_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_1_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_2_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_2_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_2_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_3_base_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_3_middle_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+    <joint name="finger_3_tip_joint">
+      <command_interface name="position"/>
+      <command_interface name="velocity"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </ros2_control>
+
+</robot>
