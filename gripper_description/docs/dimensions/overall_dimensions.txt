@@ -1,0 +1,11 @@
+==========================================
+Overall Dimensions
+==========================================
+
+Overall Length      : 121.6 mm
+Overall Width       : 40.0 mm
+Overall Thickness   : 18.5 mm
+
+Base Diameter       : Ø64 mm
+Base Height         : 31.5 mm
+Base Gap            : 52.0 mm

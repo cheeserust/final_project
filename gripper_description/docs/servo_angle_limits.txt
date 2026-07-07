@@ -1,0 +1,70 @@
+==========================================
+Servo Origin & Joint Limits
+==========================================
+
+[Servo Home Position (Goal Value)]
+
+Servo Motor 1  : 500
+Servo Motor 2  : 520
+Servo Motor 3  : 520
+Servo Motor 4  : 511
+Servo Motor 5  : 520
+Servo Motor 6  : 500
+Servo Motor 7  : 530
+Servo Motor 8  : 508
+Servo Motor 9  : 520
+
++
+
+(Servo Motor 10 : 482)
+
+
+==========================================
+Joint Motion Limits
+==========================================
+
+Joint Name : finger_tip_joint
+Description : Finger Tip Joint
+
+Range
+-111.3° ~ +111.3°
+
+Direction
+(-) Inward (Toward Palm)
+(+) Outward (Away from Palm)
+
+
+------------------------------------------
+
+Joint Name : finger_middle_joint
+Description : Finger Middle Joint
+
+Range
+-137.7° ~ +52.7°
+
+Direction
+(-) Inward (Toward Palm)
+(+) Outward (Away from Palm)
+
+
+------------------------------------------
+
+Joint Name : finger_base_joint
+Description : Finger Base Joint
+
+Range
+-70.3° ~ +70.3°
+
+Direction
+(-) Inward (Toward Palm)
+(+) Outward (Away from Palm)
+
+
+==========================================
+Notes
+==========================================
+
+- Servo Home Position : Initial goal value for each servo motor.
+- Joint Motion Limits : Safe operating range of each joint.
+- Negative (-) values indicate motion toward the palm.
+- Positive (+) values indicate motion away from the palm.
