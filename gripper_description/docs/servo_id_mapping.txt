@@ -1,0 +1,15 @@
+==========================================
+Servo ID Mapping
+==========================================
+
+Servo 0 : finger_1_base_joint
+Servo 1 : finger_1_middle_joint
+Servo 2 : finger_1_tip_joint
+
+Servo 3 : finger_2_base_joint
+Servo 4 : finger_2_middle_joint
+Servo 5 : finger_2_tip_joint
+
+Servo 6 : finger_3_base_joint
+Servo 7 : finger_3_middle_joint
+Servo 8 : finger_3_tip_joint
