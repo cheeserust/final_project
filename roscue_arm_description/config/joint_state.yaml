@@ -1,0 +1,37 @@
+# Joint configuration for joint_state_publisher_gui
+
+joint_state_publisher:
+  ros__parameters:
+    # Joint names and default positions
+    zeros:
+      arm_joint_1: 0.0
+      arm_joint_2: 0.0
+      arm_joint_3: 0.0
+      arm_joint_4: 0.0
+      base_joint: 0.0
+      finger_1_base_joint: 0.0
+      finger_1_middle_joint: 0.0
+      finger_1_tip_joint: 0.0
+      finger_2_base_joint: 0.0
+      finger_2_middle_joint: 0.0
+      finger_2_tip_joint: 0.0
+      finger_3_base_joint: 0.0
+      finger_3_middle_joint: 0.0
+      finger_3_tip_joint: 0.0
+
+    # Joints to publish
+    source_list:
+      - arm_joint_1
+      - arm_joint_2
+      - arm_joint_3
+      - arm_joint_4
+      - base_joint
+      - finger_1_base_joint
+      - finger_1_middle_joint
+      - finger_1_tip_joint
+      - finger_2_base_joint
+      - finger_2_middle_joint
+      - finger_2_tip_joint
+      - finger_3_base_joint
+      - finger_3_middle_joint
+      - finger_3_tip_joint

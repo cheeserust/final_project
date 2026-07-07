@@ -1,0 +1,17 @@
+# Goal
+string task_id
+string target_name
+int32 target_floor
+int32 marker_id
+string extra_json
+
+---
+# Result
+bool success
+string message
+
+---
+# Feedback
+string phase
+float32 progress
+string detail

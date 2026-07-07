@@ -1,0 +1,179 @@
+controllers:
+  arm:
+    action_name: /arm_controller/follow_joint_trajectory
+    default_duration_sec: 2.0
+    joints:
+      - base_joint
+      - arm_joint_1
+      - arm_joint_2
+      - arm_joint_3
+      - arm_joint_4
+
+  gripper:
+    action_name: /gripper_controller/follow_joint_trajectory
+    default_duration_sec: 1.0
+    joints:
+      - finger_1_base_joint
+      - finger_1_middle_joint
+      - finger_1_tip_joint
+      - finger_2_base_joint
+      - finger_2_middle_joint
+      - finger_2_tip_joint
+      - finger_3_base_joint
+      - finger_3_middle_joint
+      - finger_3_tip_joint
+
+servers:
+  pick:
+    action_name: /arm/pick
+    task: pick
+
+  place:
+    action_name: /arm/place
+    task: place
+
+  press_button:
+    action_name: /arm/press_button
+    task: press_elevator_call_button
+    dispatch_by_button_role:
+      elevator_call: press_elevator_call_button
+      floor_select: press_floor_button
+
+  press_elevator_call_button:
+    action_name: /arm/press_elevator_call_button
+    task: press_elevator_call_button
+
+  press_floor_button:
+    action_name: /arm/press_floor_button
+    task: press_floor_button
+
+# These are starter joint poses in degrees. Tune them on the real robot.
+poses:
+  arm:
+    home:
+      degrees: [0.0, 0.0, 0.0, 0.0, 0.0]
+      duration_sec: 2.0
+
+    pick_pre:
+      degrees: [0.0, -25.0, 35.0, -20.0, 0.0]
+      duration_sec: 2.0
+
+    pick_grasp:
+      degrees: [0.0, -35.0, 50.0, -30.0, 0.0]
+      duration_sec: 1.5
+
+    pick_lift:
+      degrees: [0.0, -18.0, 30.0, -12.0, 0.0]
+      duration_sec: 1.5
+
+    place_pre:
+      degrees: [0.0, -22.0, 35.0, -18.0, 0.0]
+      duration_sec: 2.0
+
+    place_down:
+      degrees: [0.0, -32.0, 50.0, -28.0, 0.0]
+      duration_sec: 1.5
+
+    place_retreat:
+      degrees: [0.0, -15.0, 25.0, -12.0, 0.0]
+      duration_sec: 1.5
+
+    elevator_call_pre:
+      degrees: [0.0, -18.0, 28.0, -18.0, 0.0]
+      duration_sec: 1.5
+
+    elevator_call_press:
+      degrees: [0.0, -24.0, 36.0, -30.0, 0.0]
+      duration_sec: 0.8
+
+    elevator_call_retreat:
+      degrees: [0.0, -14.0, 24.0, -14.0, 0.0]
+      duration_sec: 1.0
+
+    floor_button_pre:
+      degrees: [8.0, -18.0, 28.0, -18.0, 0.0]
+      duration_sec: 1.5
+
+    floor_button_press:
+      degrees: [8.0, -24.0, 36.0, -30.0, 0.0]
+      duration_sec: 0.8
+
+    floor_button_retreat:
+      degrees: [8.0, -14.0, 24.0, -14.0, 0.0]
+      duration_sec: 1.0
+
+  gripper:
+    open:
+      degrees: [45.0, 30.0, 60.0, 45.0, 30.0, 60.0, 45.0, 30.0, 60.0]
+      duration_sec: 1.0
+      target_load_raw: 300
+
+    close:
+      degrees: [-30.0, -60.0, -45.0, -30.0, -60.0, -45.0, -30.0, -60.0, -45.0]
+      duration_sec: 1.0
+      target_load_raw: 500
+
+tasks:
+  pick:
+    steps:
+      - phase: pre_grasp
+        controller: arm
+        pose: pick_pre
+      - phase: open_gripper
+        controller: gripper
+        pose: open
+        target_load_raw: 300
+      - phase: grasp_pose
+        controller: arm
+        pose: pick_grasp
+      - phase: close_gripper
+        controller: gripper
+        pose: close
+        target_load_raw: 500
+      - phase: lift
+        controller: arm
+        pose: pick_lift
+
+  place:
+    steps:
+      - phase: pre_place
+        controller: arm
+        pose: place_pre
+      - phase: place_pose
+        controller: arm
+        pose: place_down
+      - phase: release
+        controller: gripper
+        pose: open
+        target_load_raw: 300
+      - phase: retreat
+        controller: arm
+        pose: place_retreat
+
+  press_elevator_call_button:
+    steps:
+      - phase: approach_call_button
+        controller: arm
+        pose: elevator_call_pre
+      - phase: press_call_button
+        controller: arm
+        pose: elevator_call_press
+      - phase: hold_button
+        wait_sec: 0.2
+      - phase: retreat_from_call_button
+        controller: arm
+        pose: elevator_call_retreat
+
+  press_floor_button:
+    steps:
+      - phase: approach_floor_button
+        controller: arm
+        pose: floor_button_pre
+      - phase: press_floor_button
+        controller: arm
+        pose: floor_button_press
+      - phase: hold_button
+        wait_sec: 0.2
+      - phase: retreat_from_floor_button
+        controller: arm
+        pose: floor_button_retreat

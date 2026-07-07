@@ -1,0 +1,1 @@
+"""VicPinky browser GUI package."""
