@@ -64,17 +64,16 @@ void board_can_request_status_event(void)
 
 static void enter_error(uint8_t error_code)
 {
-    trajectory_cancel_staging();
-    trajectory_stop_motion();
+    trajectory_clear();
     g_error_code = error_code;
-    if (!g_estop) g_state = STATE_ERROR;
+    if (!ESTOP_ACTIVE()) g_state = STATE_ERROR;
     board_can_request_status_event();
 }
 
 static uint8_t motion_command_allowed(void)
 {
     if (!g_enabled) return 0;
-    if (g_estop) return 0;
+    if (ESTOP_ACTIVE()) return 0;
     if (g_error_code != ERR_NONE) return 0;
     if (g_homing_active) return 0;
     if (!system_all_homed()) return 0;
@@ -83,6 +82,7 @@ static uint8_t motion_command_allowed(void)
 
 static void handle_estop(const CanFrame *frame)
 {
+#if ENABLE_ESTOP_LOGIC
     if (!frame_is_exact_8_bytes(frame) || frame->data[0] != 1 || !reserved_zero(frame, 1)) {
         enter_error(ERR_INVALID_CMD);
         return;
@@ -97,6 +97,9 @@ static void handle_estop(const CanFrame *frame)
     stepper_stop_all();
     motor_disable();
     board_can_request_status_event();
+#else
+    (void)frame;
+#endif
 }
 
 static void handle_enable_disable(const CanFrame *frame)
@@ -107,6 +110,9 @@ static void handle_enable_disable(const CanFrame *frame)
     }
 
     if (frame->data[0] == 1) {
+        if (g_error_code != ERR_NONE || g_state == STATE_ERROR || g_state == STATE_ESTOP) {
+            trajectory_clear();
+        }
         g_estop = 0;
         g_error_code = ERR_NONE;
         g_enabled = 1;
@@ -138,7 +144,7 @@ static void handle_arm_homing(const CanFrame *frame)
         return;
     }
 
-    if (!g_enabled || g_estop || g_error_code != ERR_NONE) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
         enter_error(ERR_INVALID_CMD);
         return;
     }
@@ -159,8 +165,8 @@ static void handle_clear_error(const CanFrame *frame)
     }
 
     g_error_code = ERR_NONE;
-    trajectory_cancel_staging();
-    if (!g_estop) {
+    trajectory_clear();
+    if (!ESTOP_ACTIVE()) {
         g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     }
     board_can_request_status_event();
@@ -319,7 +325,7 @@ static uint8_t make_position_flags(uint8_t motor_id,
     }
 
     if (homed) flags |= 0x01;
-    if (homed && enabled_snapshot && state_snapshot != STATE_ESTOP &&
+    if (homed && enabled_snapshot && (!ENABLE_ESTOP_LOGIC || state_snapshot != STATE_ESTOP) &&
         state_snapshot != STATE_ERROR && error_snapshot == ERR_NONE) {
         flags |= 0x02;
     }
@@ -347,8 +353,7 @@ void board_can_send_position_feedback_all(void)
         frame.data[i] = 0;
     }
     for (uint8_t i = 0; i < AXIS_COUNT && i < 4; i++) {
-        write_i16_le(&frame.data[i * 2],
-                     clamp_i16(step_to_angle(i, current_snapshot[i])));
+        write_i16_le(&frame.data[i * 2], clamp_i16(step_to_angle(i, current_snapshot[i])));
     }
 
     (void)mcp2515_send_frame(&frame);

@@ -17,9 +17,9 @@ static volatile uint8_t g_homing_step_request_bits = 0;
 static uint32_t g_axis_total_steps[AXIS_COUNT];
 
 
-#if BOARD_ID == 1
+#if BOARD_ID == BOARD_ID_BOARD1
 static const int8_t home_dir[AXIS_COUNT] = { DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE };
-#elif BOARD_ID == 2
+#elif BOARD_IS_BOARD2_FAMILY
 static const int8_t home_dir[AXIS_COUNT] = { DIR_POSITIVE };
 #else
 #error "stepper.c: BOARD_ID가 정의되지 않았거나 지원하지 않는 값입니다. home_dir[]을 채울 수 없습니다."
@@ -31,7 +31,7 @@ static uint8_t limit_switch_pressed_raw(uint8_t id)
 {
     uint8_t value = 1;
 
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (id == 0) {
         value = (uint8_t)((LIM4_PORT->IDR & (1u << LIM4_PIN)) != 0);
     }
@@ -91,7 +91,7 @@ uint8_t stepper_limit_switch_status_bits(void)
 
 static void clear_step_high_flag(void)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (step_high_flag[0]) {
         STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
         step_high_flag[0] = 0;
@@ -123,7 +123,7 @@ static void set_dir(uint8_t id, int8_t dir)
 {
     uint8_t positive = (dir > 0) ? 1 : 0;
 
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (id == 0) {
         if (positive) DIR4_PORT->BSRR = (1u << DIR4_PIN);
         else          DIR4_PORT->BSRR = (1u << (DIR4_PIN + 16));
@@ -151,7 +151,7 @@ static void set_dir(uint8_t id, int8_t dir)
 
 static void step_pin_high(uint8_t id)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (id == 0) {
         STEP4_PORT->BSRR = (1u << STEP4_PIN);
         step_high_flag[0] = 1;
@@ -179,7 +179,7 @@ static void step_pin_high(uint8_t id)
 //GPIO 저수준 제어 (STEP DIR 핀 켜고 끄기)
 static void step_pin_low(uint8_t id)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (id == 0) {
         STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
         step_high_flag[0] = 0;
@@ -286,7 +286,7 @@ void stepper_start_homing(uint8_t id)
         g_state = STATE_ERROR;
         return;
     }
-    if (g_estop || !g_enabled || g_error_code != ERR_NONE) return;
+    if (ESTOP_ACTIVE() || !g_enabled || g_error_code != ERR_NONE) return;
 
     g_homing_active = 1;
     g_homing_done_bits &= (uint8_t)~(1u << id);
@@ -302,7 +302,7 @@ void stepper_start_homing(uint8_t id)
 // 모든 축 홈
 void stepper_start_homing_all(void)
 {
-    if (g_estop || !g_enabled || g_error_code != ERR_NONE) return;
+    if (ESTOP_ACTIVE() || !g_enabled || g_error_code != ERR_NONE) return;
 
     g_homing_active = 1;
     g_homing_done_bits = 0;
@@ -324,7 +324,7 @@ void stepper_homing_1ms(void)
 {
     if (!g_homing_active) return; 
 
-    if (g_estop || !g_enabled || g_error_code != ERR_NONE) {
+    if (ESTOP_ACTIVE() || !g_enabled || g_error_code != ERR_NONE) {
         stepper_stop_all();
         g_homing_active = 0;
         return;
@@ -392,7 +392,7 @@ void stepper_10us_interrupt(void)
     clear_step_high_flag();
 
     // 2. 시스템 상태 및 에러 체크
-    if (g_estop || !g_enabled || g_error_code != ERR_NONE) {
+    if (ESTOP_ACTIVE() || !g_enabled || g_error_code != ERR_NONE) {
         return;
     }
 

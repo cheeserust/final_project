@@ -9,6 +9,8 @@ volatile uint8_t g_mcp2515_irq_pending = 0;
 #define MCP_READ        0x03
 #define MCP_WRITE       0x02
 #define MCP_BITMOD      0x05
+#define MCP_READ_RXB0   0x90
+#define MCP_READ_RXB1   0x94
 #define MCP_RTS_TX0     0x81
 #define MCP_RTS_TX1     0x82
 #define MCP_RTS_TX2     0x84
@@ -310,30 +312,29 @@ uint8_t mcp2515_service(void)
     return g_mcp2515_spi_fault ? mcp2515_recover() : 1;
 }
 
-static void mcp_read_rx_buffer(uint8_t sidh_addr,
-                               uint8_t sidl_addr,
-                               uint8_t dlc_addr,
-                               uint8_t data_addr,
-                               CanFrame *frame)
+static void mcp_read_rx_buffer(uint8_t read_cmd, CanFrame *frame)
 {
     uint8_t sidh;
     uint8_t sidl;
     uint8_t dlc;
     uint8_t i;
 
-    sidh = mcp_read_reg(sidh_addr);
-    sidl = mcp_read_reg(sidl_addr);
+    mcp2515_cs_low();
+    mcp2515_spi_txrx_byte(read_cmd);
+    sidh = mcp2515_spi_txrx_byte(0xFF);
+    sidl = mcp2515_spi_txrx_byte(0xFF);
+    (void)mcp2515_spi_txrx_byte(0xFF);  /* EID8 */
+    (void)mcp2515_spi_txrx_byte(0xFF);  /* EID0 */
+    dlc = mcp2515_spi_txrx_byte(0xFF) & 0x0F;
 
     frame->id = ((uint16_t)sidh << 3) | ((uint16_t)sidl >> 5);
-
-    dlc = mcp_read_reg(dlc_addr) & 0x0F;
     if (dlc > 8) dlc = 8;
-
     frame->dlc = dlc;
-    for (i = 0; i < 8; i++) frame->data[i] = 0;
-    for (i = 0; i < dlc; i++) {
-        frame->data[i] = mcp_read_reg((uint8_t)(data_addr + i));
+
+    for (i = 0; i < 8; i++) {
+        frame->data[i] = mcp2515_spi_txrx_byte(0xFF);
     }
+    mcp2515_cs_high();
 }
 
 uint8_t mcp2515_read_frame(CanFrame *frame)
@@ -350,21 +351,13 @@ uint8_t mcp2515_read_frame(CanFrame *frame)
     }
 
     if (intf & MCP_RX0IF) {
-        mcp_read_rx_buffer(MCP_RXB0SIDH,
-                           MCP_RXB0SIDL,
-                           MCP_RXB0DLC,
-                           MCP_RXB0D0,
-                           frame);
+        mcp_read_rx_buffer(MCP_READ_RXB0, frame);
         mcp_bit_modify(MCP_CANINTF, MCP_RX0IF, 0x00);
         return 1;
     }
 
     if (intf & MCP_RX1IF) {
-        mcp_read_rx_buffer(MCP_RXB1SIDH,
-                           MCP_RXB1SIDL,
-                           MCP_RXB1DLC,
-                           MCP_RXB1D0,
-                           frame);
+        mcp_read_rx_buffer(MCP_READ_RXB1, frame);
         mcp_bit_modify(MCP_CANINTF, MCP_RX1IF, 0x00);
         return 1;
     }
@@ -551,11 +544,7 @@ void spi2_init(void)
 }
 
 // 데이터가 can 모듈 들어오면 INT핀이 LOW로 떨어짐 -> exti 인터럽트 걸림
-#if BOARD_ID == 2
-void EXTI4_IRQHandler(void)
-#else
 void EXTI15_10_IRQHandler(void)
-#endif
 {
     if (EXTI->PR & (1 << MCP_INT_PIN)) {
         EXTI->PR = (1 << MCP_INT_PIN);

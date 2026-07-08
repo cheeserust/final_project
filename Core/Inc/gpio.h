@@ -35,7 +35,7 @@
 #define TMC_MOSI_PIN  1
 #define TMC_MISO_PORT GPIOB
 #define TMC_MISO_PIN  0
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
 #define TMC_CLK_PORT  GPIOB
 #define TMC_CLK_PIN   5
 #else
@@ -52,7 +52,7 @@
 #define LIM2_PIN  15
 #define LIM3_PORT GPIOB
 #define LIM3_PIN  4
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
 #define LIM4_PORT GPIOC
 #define LIM4_PIN  8
 #else
@@ -60,21 +60,12 @@
 #define LIM4_PIN  12
 #endif
 
-#if BOARD_ID == 2
-#define MCP_CS_PORT   GPIOB
-#define MCP_CS_PIN    12
-#define MCP_INT_PORT  GPIOB
-#define MCP_INT_PIN   4
-#define MCP_INT_EXTICR_PORT 1
-#define MCP_INT_IRQn  EXTI4_IRQn
-#else
 #define MCP_CS_PORT   GPIOA
 #define MCP_CS_PIN    9
 #define MCP_INT_PORT  GPIOA
 #define MCP_INT_PIN   10
 #define MCP_INT_EXTICR_PORT 0
 #define MCP_INT_IRQn  EXTI15_10_IRQn
-#endif
 #define MCP_SCK_PORT  GPIOB
 #define MCP_SCK_PIN   13
 #define MCP_MISO_PORT GPIOB

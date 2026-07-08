@@ -37,6 +37,34 @@ void gpio_init(void)
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN;  // GPIOA/B/C 클럭 활성화
     (void)RCC->AHB1ENR;  // 클럭 활성화 후 레지스터 반영 대기용 dummy read
 
+#if BOARD_IS_BOARD2_2
+    GPIO_SET_ODR(CS4_PORT, CS4_PIN);        // TMC CS 초기값 high
+    GPIO_SET_ODR(TMC_CLK_PORT, TMC_CLK_PIN); // TMC CLK idle high
+    GPIO_SET_ODR(MOTOR_EN_PORT, MOTOR_EN_PIN); // 모터 disable
+    GPIO_SET_ODR(MCP_CS_PORT, MCP_CS_PIN);  // MCP2515 CS 초기값 high
+
+    gpio_output(DIR4_PORT, DIR4_PIN);       // Board2-2 axis dir
+    gpio_output(STEP4_PORT, STEP4_PIN);     // Board2-2 axis step
+    gpio_output(CS4_PORT, CS4_PIN);         // Board2-2 TMC CS
+    gpio_output(TMC_MOSI_PORT, TMC_MOSI_PIN);
+    gpio_output(TMC_CLK_PORT, TMC_CLK_PIN);
+    gpio_output(MOTOR_EN_PORT, MOTOR_EN_PIN);
+    gpio_output(MCP_CS_PORT, MCP_CS_PIN);
+
+    gpio_input_pullup(TMC_MISO_PORT, TMC_MISO_PIN);
+    gpio_input_pullup(LIM4_PORT, LIM4_PIN);
+    gpio_input_pullup(MCP_INT_PORT, MCP_INT_PIN);
+
+    gpio_af5(MCP_SCK_PORT, MCP_SCK_PIN);
+    gpio_af5(MCP_MISO_PORT, MCP_MISO_PIN);
+    gpio_af5(MCP_MOSI_PORT, MCP_MOSI_PIN);
+
+    GPIO_CLEAR_ODR(STEP4_PORT, STEP4_PIN);
+    GPIO_SET_ODR(CS4_PORT, CS4_PIN);
+    GPIO_SET_ODR(TMC_CLK_PORT, TMC_CLK_PIN);
+    GPIO_SET_ODR(MOTOR_EN_PORT, MOTOR_EN_PIN);
+    GPIO_SET_ODR(MCP_CS_PORT, MCP_CS_PIN);
+#else
     gpio_output(DIR1_PORT, DIR1_PIN);    // 1번 axis dir
     gpio_output(STEP1_PORT, STEP1_PIN);  // 1번 axis step
     gpio_output(CS1_PORT, CS1_PIN);      // 1번 axis TMC5160 CS
@@ -78,6 +106,7 @@ void gpio_init(void)
     GPIO_SET_ODR(TMC_CLK_PORT, TMC_CLK_PIN); // TMC CLK idle high
     GPIO_SET_ODR(MOTOR_EN_PORT, MOTOR_EN_PIN); // 모터 en핀 초기값 high(disable)
     GPIO_SET_ODR(MCP_CS_PORT, MCP_CS_PIN);   // MCP2515 CS 초기값 high
+#endif
 }
 
 void motor_enable(void)

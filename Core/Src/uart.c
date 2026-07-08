@@ -5,7 +5,12 @@
 #include <stdint.h>
 
 #define UART_BAUD              115200
-#define UART_PCLK_HZ           (SYSCLK_HZ / 2)
+#define DEBUG_USART            USART2
+#define DEBUG_UART_PCLK_HZ     (SYSCLK_HZ / 2)
+#define DEBUG_UART_TX_PIN      2
+#define DEBUG_UART_RX_PIN      3
+#define DEBUG_UART_NAME        "UART2"
+#define DEBUG_UART_PINS        "PA2 TX / PA3 RX"
 #define UART_RX_WORK_LIMIT     16
 #define UART_LINE_MAX          48
 #define DEFAULT_MOVE_STEPS     400
@@ -74,8 +79,8 @@ static void gpio_clear_pin(GPIO_TypeDef *port, uint8_t pin)
 
 static void uart2_putc_raw(char ch)
 {
-    while ((USART2->SR & USART_SR_TXE) == 0) {}
-    USART2->DR = (uint8_t)ch;
+    while ((DEBUG_USART->SR & USART_SR_TXE) == 0) {}
+    DEBUG_USART->DR = (uint8_t)ch;
 }
 
 static void uart2_putc(char ch)
@@ -94,12 +99,12 @@ static void uart2_puts(const char *str)
 
 static uint8_t uart2_readable(void)
 {
-    return (USART2->SR & USART_SR_RXNE) ? 1 : 0;
+    return (DEBUG_USART->SR & USART_SR_RXNE) ? 1 : 0;
 }
 
 static char uart2_getc(void)
 {
-    return (char)(USART2->DR & 0xFF);
+    return (char)(DEBUG_USART->DR & 0xFF);
 }
 
 int __io_putchar(int ch)
@@ -214,7 +219,7 @@ static void uart2_put_hex32(uint32_t value)
 
 static void tmc_uart_cs_low(uint8_t axis_id)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (axis_id == 0) gpio_clear_pin(CS4_PORT, CS4_PIN);
 #else
     if (axis_id == 0) gpio_clear_pin(CS1_PORT, CS1_PIN);
@@ -228,7 +233,7 @@ static void tmc_uart_cs_low(uint8_t axis_id)
 
 static void tmc_uart_cs_high(uint8_t axis_id)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (axis_id == 0) gpio_set_pin(CS4_PORT, CS4_PIN);
 #else
     if (axis_id == 0) gpio_set_pin(CS1_PORT, CS1_PIN);
@@ -306,7 +311,7 @@ static void print_tmc_status(void)
         print_tmc_reg(axis, "  IOIN", TMC_REG_IOIN);
         print_tmc_reg(axis, "  DRV_STATUS", TMC_REG_DRV_STATUS);
         print_tmc_reg(axis, "  CHOPCONF", TMC_REG_CHOPCONF);
-#if BOARD_ID == 1
+#if BOARD_ID == BOARD_ID_BOARD1
         if (axis == 3) {
             print_tmc_reg(axis, "  DRV_CONF", TMC_REG_DRV_CONF);
             print_tmc_reg(axis, "  GLOBAL_SCALER", TMC_REG_GLOBAL_SCALER);
@@ -325,7 +330,11 @@ static void print_prompt(void)
 
 static void print_help(void)
 {
-    uart2_puts("\nUART2 debug, PA2 TX / PA3 RX, 115200 8N1\n");
+    uart2_puts("\n");
+    uart2_puts(DEBUG_UART_NAME);
+    uart2_puts(" debug, ");
+    uart2_puts(DEBUG_UART_PINS);
+    uart2_puts(", 115200 8N1\n");
     uart2_puts("Commands:\n");
     uart2_puts("  ?              help\n");
     uart2_puts("  p              print status\n");
@@ -335,7 +344,9 @@ static void print_help(void)
     uart2_puts("  home           start all-axis homing\n");
     uart2_puts("  home1          start single-axis homing\n");
     uart2_puts("  s              stop queued/current motion\n");
-    uart2_puts("  x              estop\n");
+    uart2_puts("  x              estop");
+    if (!ENABLE_ESTOP_LOGIC) uart2_puts(" disabled");
+    uart2_puts("\n");
     uart2_puts("  tmc            print TMC status registers\n");
     uart2_puts("  1+400 500      relative step move, duration ms optional\n");
     uart2_puts("  j1+100         raw low-speed jog before homing, press s to stop\n");
@@ -345,7 +356,7 @@ static void print_help(void)
 static uint8_t motion_command_allowed(void)
 {
     if (!g_enabled) return 0;
-    if (g_estop) return 0;
+    if (ESTOP_ACTIVE()) return 0;
     if (g_error_code != ERR_NONE) return 0;
     if (g_homing_active) return 0;
     if (!system_all_homed()) return 0;
@@ -441,7 +452,7 @@ static void handle_clear_error(void)
 {
     g_error_code = ERR_NONE;
     trajectory_cancel_staging();
-    if (!g_estop) {
+    if (!ESTOP_ACTIVE()) {
         g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     }
     uart2_puts("OK clear error\n");
@@ -450,7 +461,7 @@ static void handle_clear_error(void)
 
 static void handle_home(void)
 {
-    if (!g_enabled || g_estop || g_error_code != ERR_NONE) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
         uart2_puts("ERR: enable first and clear estop/error\n");
         print_prompt();
         return;
@@ -471,7 +482,7 @@ static void handle_home_axis(uint8_t axis)
         print_prompt();
         return;
     }
-    if (!g_enabled || g_estop || g_error_code != ERR_NONE) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
         uart2_puts("ERR: enable first and clear estop/error\n");
         print_prompt();
         return;
@@ -490,7 +501,7 @@ static void handle_stop(void)
 {
     trajectory_clear();
     stepper_stop_all();
-    if (g_enabled && !g_estop && g_error_code == ERR_NONE) {
+    if (g_enabled && !ESTOP_ACTIVE() && g_error_code == ERR_NONE) {
         g_state = STATE_IDLE;
     }
     uart2_puts("OK stop\n");
@@ -499,6 +510,7 @@ static void handle_stop(void)
 
 static void handle_estop(void)
 {
+#if ENABLE_ESTOP_LOGIC
     g_estop = 1;
     g_enabled = 0;
     g_error_code = ERR_NONE;
@@ -508,6 +520,9 @@ static void handle_estop(void)
     stepper_stop_all();
     motor_disable();
     uart2_puts("OK estop\n");
+#else
+    uart2_puts("OK estop ignored\n");
+#endif
     print_prompt();
 }
 
@@ -515,7 +530,7 @@ static void raw_set_dir(uint8_t axis, int8_t dir)
 {
     uint8_t positive = (dir > 0) ? 1 : 0;
 
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (axis == 0) {
         if (positive) gpio_set_pin(DIR4_PORT, DIR4_PIN);
         else gpio_clear_pin(DIR4_PORT, DIR4_PIN);
@@ -542,7 +557,7 @@ static void raw_set_dir(uint8_t axis, int8_t dir)
 
 static void raw_step_high(uint8_t axis)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (axis == 0) gpio_set_pin(STEP4_PORT, STEP4_PIN);
 #else
     if (axis == 0) gpio_set_pin(STEP1_PORT, STEP1_PIN);
@@ -556,7 +571,7 @@ static void raw_step_high(uint8_t axis)
 
 static void raw_step_low(uint8_t axis)
 {
-#if BOARD_ID == 2
+#if BOARD_IS_BOARD2_2
     if (axis == 0) gpio_clear_pin(STEP4_PORT, STEP4_PIN);
 #else
     if (axis == 0) gpio_clear_pin(STEP1_PORT, STEP1_PIN);
@@ -589,7 +604,7 @@ static uint8_t raw_delay_us_interruptible(uint32_t wait_us)
         if (slice_us > 10) slice_us = 10;
 
         if (raw_jog_stop_requested()) return 1;
-        if (g_estop || g_error_code != ERR_NONE) return 1;
+        if (ESTOP_ACTIVE() || g_error_code != ERR_NONE) return 1;
         delay_us(slice_us);
         elapsed_us += slice_us;
     }
@@ -637,7 +652,7 @@ static void handle_raw_jog_command(const char *line)
         print_prompt();
         return;
     }
-    if (g_estop || g_error_code != ERR_NONE) {
+    if (ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
         uart2_puts("ERR: clear estop/error first\n");
         print_prompt();
         return;
@@ -902,15 +917,15 @@ void uart_debug_init(uint8_t enabled)
     (void)RCC->AHB1ENR;
     (void)RCC->APB1ENR;
 
-    gpio_af7(GPIOA, 2);
-    gpio_af7(GPIOA, 3);
+    gpio_af7(GPIOA, DEBUG_UART_TX_PIN);
+    gpio_af7(GPIOA, DEBUG_UART_RX_PIN);
     dwt_delay_init();
 
-    USART2->CR1 = 0;
-    USART2->CR2 = 0;
-    USART2->CR3 = 0;
-    USART2->BRR = (UART_PCLK_HZ + (UART_BAUD / 2)) / UART_BAUD;
-    USART2->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
+    DEBUG_USART->CR1 = 0;
+    DEBUG_USART->CR2 = 0;
+    DEBUG_USART->CR3 = 0;
+    DEBUG_USART->BRR = (DEBUG_UART_PCLK_HZ + (UART_BAUD / 2)) / UART_BAUD;
+    DEBUG_USART->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
 
     s_uart_ready = 1;
 }
@@ -920,7 +935,17 @@ void uart_debug_print_ready(uint8_t enabled)
     if (!enabled || !s_uart_enabled || !s_uart_ready) return;
 
     s_last_heartbeat_ms = global_tick_ms;
-    uart2_puts("\nUART2 debug ready, send ? for help\n");
+    uart2_puts("\n");
+    uart2_puts(DEBUG_UART_NAME);
+    uart2_puts(" debug ready, send ? for help\n");
+    print_prompt();
+}
+
+void uart_debug_print_loop_ready(uint8_t enabled)
+{
+    if (!enabled || !s_uart_enabled || !s_uart_ready) return;
+
+    uart2_puts("\ncommand loop ready\n");
     print_prompt();
 }
 

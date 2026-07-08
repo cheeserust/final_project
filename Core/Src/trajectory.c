@@ -15,13 +15,13 @@ typedef struct {
     volatile uint8_t tail;
 } TrajectoryPointRingQueue;
 
-#if BOARD_ID == 1
+#if BOARD_ID == BOARD_ID_BOARD1
 static const int32_t gear_ratio[AXIS_COUNT] = { 20, 50, 30, 120 };
 static const int32_t motor_steps_per_rev[AXIS_COUNT] = { 200, 200, 200, 48 };
-static const int32_t min_angle[AXIS_COUNT] = { -9000, -8000, -9000, -17000 };
-static const int32_t max_angle[AXIS_COUNT] = { 9000, 8000, 9000, 17000 };
-static const int32_t home_angle[AXIS_COUNT] = { -9000, -8000, -9000, -17000 };
-#elif BOARD_ID == 2
+static const int32_t min_angle[AXIS_COUNT] = { -8500, -7450, -9150, -9000 };
+static const int32_t max_angle[AXIS_COUNT] = { 9000, 8000, 9000, 9000 };
+static const int32_t home_angle[AXIS_COUNT] = { -8500, -7450, -9150, -9000 };
+#elif BOARD_IS_BOARD2_FAMILY
 static const int32_t gear_ratio[AXIS_COUNT] = { 20 };
 static const int32_t motor_steps_per_rev[AXIS_COUNT] = { 200 };
 static const int32_t min_angle[AXIS_COUNT] = { -9000 };
@@ -184,8 +184,7 @@ uint8_t trajectory_handle_staging_timeout(void)
     if (!g_pending_trajectory_point.active) return 0;
     if ((global_tick_ms - g_pending_trajectory_point.start_ms) <= STAGING_TIMEOUT_MS) return 0;
 
-    reset_pending_trajectory_point();
-    trajectory_stop_motion();
+    trajectory_clear();
     g_error_code = ERR_INVALID_CMD;
     g_state = STATE_ERROR;
     return 1;
@@ -250,7 +249,7 @@ void trajectory_1ms_interrupt(void)
     uint8_t reached;
 
     // 1. 모션 허용 상태 체크
-    if (!g_enabled ||g_estop || g_error_code != ERR_NONE ||  g_homing_active || !system_all_homed()) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE ||  g_homing_active || !system_all_homed()) {
         if (g_motion_active) {
             trajectory_stop_motion();
         }

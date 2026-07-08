@@ -10,6 +10,7 @@
 extern void uart_debug_init(uint8_t enabled);
 extern void uart_debug_service(uint8_t enabled);
 extern void uart_debug_print_ready(uint8_t enabled);
+extern void uart_debug_print_loop_ready(uint8_t enabled);
 
 static void clock_init_96mhz(void)
 {
@@ -66,7 +67,8 @@ int main(void)
 
     clock_init_96mhz();    // SYSCLK 96MHz 설정
     gpio_init();           // GPIO 초기화
-    uart_debug_init(debug_uart);  // UART2 디버그 콘솔
+    uart_debug_init(debug_uart);  // UART 디버그 콘솔
+    uart_debug_print_ready(debug_uart);
     motor_disable();       // 초기 상태에서는 모터 출력 차단
     stepper_init();        // 스텝 모터 상태 변수 초기화
     trajectory_clear();    // 궤적 큐와 목표 위치 초기화
@@ -87,7 +89,7 @@ int main(void)
     last_can_service_ms = global_tick_ms;
     board_can_send_status();
     board_can_send_position_feedback_all();
-    uart_debug_print_ready(debug_uart);
+    uart_debug_print_loop_ready(debug_uart);
 
     while (1) {
         CanFrame rx;    // [수신] CAN frame
@@ -99,8 +101,8 @@ int main(void)
         if (g_mcp2515_irq_pending || mcp2515_int_asserted()) {
             g_mcp2515_irq_pending = 0;
 
-            // 2. 한 번에 8개만 읽기
-            rx_budget = 8;
+            // 2. RX backlog가 남지 않도록 한 loop에서 충분히 비우기
+            rx_budget = 32;
             while (rx_budget > 0 && mcp2515_read_frame(&rx))// 읽을 프레임이 있으면 1,
             { 
                 rx_budget--;

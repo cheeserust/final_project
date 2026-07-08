@@ -12,7 +12,7 @@
 #define TMC_5160     0
 #define TMC_2240     1
 
-#if BOARD_ID == 1
+#if BOARD_ID == BOARD_ID_BOARD1
 static const uint8_t tmc_driver_type[AXIS_COUNT] = {
     TMC_5160,
     TMC_5160,
@@ -27,8 +27,8 @@ static const uint8_t tmc_driver_type[AXIS_COUNT] = {
 
 static void tmc_cs_low(uint8_t axis_id)
 {
-#if BOARD_ID == 2
-    if (axis_id == 0) GPIO_CLEAR_ODR(CS4_PORT, CS4_PIN);       // Board2 base axis
+#if BOARD_IS_BOARD2_2
+    if (axis_id == 0) GPIO_CLEAR_ODR(CS4_PORT, CS4_PIN);       // Board2-2 base axis
 #else
     if (axis_id == 0) GPIO_CLEAR_ODR(CS1_PORT, CS1_PIN);       // 1번 축
     else if (axis_id == 1) GPIO_CLEAR_ODR(CS2_PORT, CS2_PIN);  // 2번 축
@@ -39,8 +39,8 @@ static void tmc_cs_low(uint8_t axis_id)
 
 static void tmc_cs_high(uint8_t axis_id)
 {
-#if BOARD_ID == 2
-    if (axis_id == 0) GPIO_SET_ODR(CS4_PORT, CS4_PIN);       // Board2 base axis
+#if BOARD_IS_BOARD2_2
+    if (axis_id == 0) GPIO_SET_ODR(CS4_PORT, CS4_PIN);       // Board2-2 base axis
 #else
     if (axis_id == 0) GPIO_SET_ODR(CS1_PORT, CS1_PIN);       // 1번 축
     else if (axis_id == 1) GPIO_SET_ODR(CS2_PORT, CS2_PIN);  // 2번 축
@@ -96,6 +96,9 @@ static void tmc2240_init_axis(uint8_t axis_id)
 
 void tmc5160_init_all(void)
 {
+#if BOARD_IS_BOARD2_2
+    return;
+#else
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         if (tmc_driver_type[i] == TMC_2240) {
             tmc2240_init_axis(i);
@@ -103,4 +106,5 @@ void tmc5160_init_all(void)
             tmc5160_init_axis(i);
         }
     }
+#endif
 }

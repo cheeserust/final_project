@@ -19,7 +19,7 @@
 | INT | PA10 | rx1 |
 
 
-## 보드2 411re
+## 보드2 STM32F411CEU6
 DIR PB6
 STEP PB7
 MISO PB0
@@ -29,23 +29,28 @@ MOSI PB1
 MOTEN PB3
 LIM4 PC8
 
-| SCK | PB13 
-| SO | PB14 
-| SI | PB15
-| CS | PB12
-| INT | PB4
+b10
 
-MISO PB0
-CLK PB5
-MOSI PB1
-MOTEN PB3
 
-## UART2 TTL 핀
+// 보드2-2
+CAN모듈
+| SCK | PB13 |
+| SO / MISO | PB14 |
+| SI / MOSI | PB15 |
+| CS | PA9 |
+| INT | PA10 |
 
-| 기능 | 핀 |
-|---|---|
-| TX2 | PA2 |
-| RX2 | PA3 |
+
+
+
+## UART 디버그 TTL 핀
+
+| 보드 | UART | TX | RX |
+|---|---|---|---|
+| Board1 | USART2 | PA2 | PA3 |
+| Board2 | USART2 | PA2 | PA3 |
+
+외부 USB-TTL은 STM32 TX -> USB-TTL RX, STM32 RX -> USB-TTL TX, GND -> GND로 연결합니다. VCC/5V/3V3은 연결하지 않습니다.
 
 ## 리밋스위치 핀
 

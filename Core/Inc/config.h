@@ -6,18 +6,27 @@
 
 #define SYSCLK_HZ                (96 * 1000 * 1000) // 96 MHz
 
-#ifndef BOARD_ID
-#define BOARD_ID                 2
-#endif
-#define ENABLE_UART 0
+#define BOARD_ID_BOARD1          1
+#define BOARD_ID_BOARD2          2
+#define BOARD_ID_BOARD2_2        22
 
-#if BOARD_ID == 1
+#ifndef BOARD_ID
+#define BOARD_ID                 BOARD_ID_BOARD1
+#endif
+#define BOARD_IS_BOARD2_FAMILY   ((BOARD_ID == BOARD_ID_BOARD2) || (BOARD_ID == BOARD_ID_BOARD2_2))
+#define BOARD_IS_BOARD2_2        (BOARD_ID == BOARD_ID_BOARD2_2)
+#define ENABLE_UART 1
+#ifndef ENABLE_ESTOP_LOGIC
+#define ENABLE_ESTOP_LOGIC       0
+#endif
+
+#if BOARD_ID == BOARD_ID_BOARD1
 #define AXIS_COUNT               4
 #define BOARD_STAGING_FRAME_COUNT 4
 #define BOARD_MOVE_CAN_ID        0x101
 #define BOARD_STATUS_CAN_ID      0x201
 #define BOARD_POSITION_CAN_ID    0x301
-#elif BOARD_ID == 2
+#elif BOARD_IS_BOARD2_FAMILY
 #define AXIS_COUNT               1
 #define BOARD_STAGING_FRAME_COUNT 1
 #define BOARD_MOVE_CAN_ID        0x102
@@ -28,11 +37,11 @@
 #endif
 
 #define MICROSTEP                16
-#define TRAJECTORY_QUEUE_SIZE    32
+#define TRAJECTORY_QUEUE_SIZE    128
 #define TRAJECTORY_POINT_QUEUE_SIZE (TRAJECTORY_QUEUE_SIZE / BOARD_STAGING_FRAME_COUNT)
 #define MULTI_AXIS_QUEUE_SIZE    TRAJECTORY_POINT_QUEUE_SIZE
-#define STAGING_TIMEOUT_MS       20
-#define MIN_STEP_INTERVAL_TICKS 5-1 //(200rpm)
+#define STAGING_TIMEOUT_MS       100
+#define MIN_STEP_INTERVAL_TICKS 9-1 //(100rpm)
 
 
 #define CAN_ID_ESTOP             0x001
@@ -66,7 +75,7 @@
 #define HOMING_ALL_AXIS          255
 #define LIMIT_SWITCH_ACTIVE_HIGH  1
 #define LIMIT_SWITCH_DEBOUNCE_TICKS 20
-#define HOMING_INTERVAL_TICKS    150
+#define HOMING_INTERVAL_TICKS    120
 
 #define DIR_POSITIVE             1
 #define DIR_NEGATIVE             (-1)
@@ -88,6 +97,8 @@ extern volatile int32_t g_current_step[AXIS_COUNT];
 extern volatile int32_t g_target_step[AXIS_COUNT];
 extern volatile int32_t g_motion_start_step[AXIS_COUNT];
 extern volatile uint32_t global_tick_ms;
+
+#define ESTOP_ACTIVE()           (ENABLE_ESTOP_LOGIC && g_estop)
 
 uint8_t system_homing_done_bits(void);
 uint8_t system_enabled_status(void);
