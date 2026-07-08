@@ -19,7 +19,7 @@ static uint32_t g_axis_total_steps[AXIS_COUNT];
 
 #if BOARD_ID == BOARD_ID_BOARD1
 static const int8_t home_dir[AXIS_COUNT] = { DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE, DIR_NEGATIVE };
-#elif BOARD_IS_BOARD2_FAMILY
+#elif BOARD_ID == BOARD_ID_BOARD2
 static const int8_t home_dir[AXIS_COUNT] = { DIR_POSITIVE };
 #else
 #error "stepper.c: BOARD_ID가 정의되지 않았거나 지원하지 않는 값입니다. home_dir[]을 채울 수 없습니다."
@@ -31,11 +31,6 @@ static uint8_t limit_switch_pressed_raw(uint8_t id)
 {
     uint8_t value = 1;
 
-#if BOARD_IS_BOARD2_2
-    if (id == 0) {
-        value = (uint8_t)((LIM4_PORT->IDR & (1u << LIM4_PIN)) != 0);
-    }
-#else
     if (id == 0) {
         value = (uint8_t)((LIM1_PORT->IDR & (1u << LIM1_PIN)) != 0);
     }
@@ -47,7 +42,6 @@ static uint8_t limit_switch_pressed_raw(uint8_t id)
     } else if (id == 3) {
         value = (uint8_t)((LIM4_PORT->IDR & (1u << LIM4_PIN)) != 0);
     }
-#endif
 #endif
 
     return (value == LIMIT_SWITCH_ACTIVE_HIGH) ? 1 : 0;
@@ -91,12 +85,6 @@ uint8_t stepper_limit_switch_status_bits(void)
 
 static void clear_step_high_flag(void)
 {
-#if BOARD_IS_BOARD2_2
-    if (step_high_flag[0]) {
-        STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
-        step_high_flag[0] = 0;
-    }
-#else
     if (step_high_flag[0]) {
         STEP1_PORT->BSRR = (1u << (STEP1_PIN + 16));
         step_high_flag[0] = 0;
@@ -115,7 +103,6 @@ static void clear_step_high_flag(void)
         step_high_flag[3] = 0;
     }
 #endif
-#endif
 }
 
 //DIR 핀 방향 설정
@@ -123,12 +110,6 @@ static void set_dir(uint8_t id, int8_t dir)
 {
     uint8_t positive = (dir > 0) ? 1 : 0;
 
-#if BOARD_IS_BOARD2_2
-    if (id == 0) {
-        if (positive) DIR4_PORT->BSRR = (1u << DIR4_PIN);
-        else          DIR4_PORT->BSRR = (1u << (DIR4_PIN + 16));
-    }
-#else
     if (id == 0) {
         if (positive) DIR1_PORT->BSRR = (1u << DIR1_PIN);
         else          DIR1_PORT->BSRR = (1u << (DIR1_PIN + 16));
@@ -145,18 +126,11 @@ static void set_dir(uint8_t id, int8_t dir)
         else          DIR4_PORT->BSRR = (1u << (DIR4_PIN + 16));
     }
 #endif
-#endif
 }
 
 
 static void step_pin_high(uint8_t id)
 {
-#if BOARD_IS_BOARD2_2
-    if (id == 0) {
-        STEP4_PORT->BSRR = (1u << STEP4_PIN);
-        step_high_flag[0] = 1;
-    }
-#else
     if (id == 0) {
         STEP1_PORT->BSRR = (1u << STEP1_PIN);
         step_high_flag[0] = 1;
@@ -173,18 +147,11 @@ static void step_pin_high(uint8_t id)
         step_high_flag[3] = 1;
     }
 #endif
-#endif
 }
 
 //GPIO 저수준 제어 (STEP DIR 핀 켜고 끄기)
 static void step_pin_low(uint8_t id)
 {
-#if BOARD_IS_BOARD2_2
-    if (id == 0) {
-        STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
-        step_high_flag[0] = 0;
-    }
-#else
     if (id == 0) {
         STEP1_PORT->BSRR = (1u << (STEP1_PIN + 16));
         step_high_flag[0] = 0;
@@ -200,7 +167,6 @@ static void step_pin_low(uint8_t id)
         STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
         step_high_flag[3] = 0;
     }
-#endif
 #endif
 }
 

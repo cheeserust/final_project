@@ -18,10 +18,10 @@ typedef struct {
 #if BOARD_ID == BOARD_ID_BOARD1
 static const int32_t gear_ratio[AXIS_COUNT] = { 20, 50, 30, 120 };
 static const int32_t motor_steps_per_rev[AXIS_COUNT] = { 200, 200, 200, 48 };
-static const int32_t min_angle[AXIS_COUNT] = { -8500, -7810, -9150, -9000 };
+static const int32_t min_angle[AXIS_COUNT] = { -8600, -7910, -9150, -9000 };
 static const int32_t max_angle[AXIS_COUNT] = { 9000, 8000, 9000, 9000 };
-static const int32_t home_angle[AXIS_COUNT] = { -8500, -7810, -9150, -9000 };
-#elif BOARD_IS_BOARD2_FAMILY
+static const int32_t home_angle[AXIS_COUNT] = { -8600, -7910, -9150, -9000 };
+#elif BOARD_ID == BOARD_ID_BOARD2
 static const int32_t gear_ratio[AXIS_COUNT] = { 20 };
 static const int32_t motor_steps_per_rev[AXIS_COUNT] = { 200 };
 static const int32_t min_angle[AXIS_COUNT] = { -9000 };

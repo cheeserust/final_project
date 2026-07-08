@@ -74,7 +74,7 @@ int main(void)
     trajectory_clear();    // 궤적 큐와 목표 위치 초기화
     interrupts_init();     // SysTick, TIM2, TIM3 인터럽트 시작
     spi2_init();           // MCP2515 통신용 SPI2 초기화
-    tmc5160_init_all();    // 모든 TMC5160 드라이버 설정
+    tmc5160_init_all();    // 모든 TMC 드라이버 설정
 
     can_ready = mcp2515_init_500k();
 

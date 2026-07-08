@@ -219,29 +219,21 @@ static void uart2_put_hex32(uint32_t value)
 
 static void tmc_uart_cs_low(uint8_t axis_id)
 {
-#if BOARD_IS_BOARD2_2
-    if (axis_id == 0) gpio_clear_pin(CS4_PORT, CS4_PIN);
-#else
     if (axis_id == 0) gpio_clear_pin(CS1_PORT, CS1_PIN);
 #if AXIS_COUNT > 1
     else if (axis_id == 1) gpio_clear_pin(CS2_PORT, CS2_PIN);
     else if (axis_id == 2) gpio_clear_pin(CS3_PORT, CS3_PIN);
     else if (axis_id == 3) gpio_clear_pin(CS4_PORT, CS4_PIN);
 #endif
-#endif
 }
 
 static void tmc_uart_cs_high(uint8_t axis_id)
 {
-#if BOARD_IS_BOARD2_2
-    if (axis_id == 0) gpio_set_pin(CS4_PORT, CS4_PIN);
-#else
     if (axis_id == 0) gpio_set_pin(CS1_PORT, CS1_PIN);
 #if AXIS_COUNT > 1
     else if (axis_id == 1) gpio_set_pin(CS2_PORT, CS2_PIN);
     else if (axis_id == 2) gpio_set_pin(CS3_PORT, CS3_PIN);
     else if (axis_id == 3) gpio_set_pin(CS4_PORT, CS4_PIN);
-#endif
 #endif
 }
 
@@ -530,12 +522,6 @@ static void raw_set_dir(uint8_t axis, int8_t dir)
 {
     uint8_t positive = (dir > 0) ? 1 : 0;
 
-#if BOARD_IS_BOARD2_2
-    if (axis == 0) {
-        if (positive) gpio_set_pin(DIR4_PORT, DIR4_PIN);
-        else gpio_clear_pin(DIR4_PORT, DIR4_PIN);
-    }
-#else
     if (axis == 0) {
         if (positive) gpio_set_pin(DIR1_PORT, DIR1_PIN);
         else gpio_clear_pin(DIR1_PORT, DIR1_PIN);
@@ -552,34 +538,25 @@ static void raw_set_dir(uint8_t axis, int8_t dir)
         else gpio_clear_pin(DIR4_PORT, DIR4_PIN);
     }
 #endif
-#endif
 }
 
 static void raw_step_high(uint8_t axis)
 {
-#if BOARD_IS_BOARD2_2
-    if (axis == 0) gpio_set_pin(STEP4_PORT, STEP4_PIN);
-#else
     if (axis == 0) gpio_set_pin(STEP1_PORT, STEP1_PIN);
 #if AXIS_COUNT > 1
     else if (axis == 1) gpio_set_pin(STEP2_PORT, STEP2_PIN);
     else if (axis == 2) gpio_set_pin(STEP3_PORT, STEP3_PIN);
     else if (axis == 3) gpio_set_pin(STEP4_PORT, STEP4_PIN);
 #endif
-#endif
 }
 
 static void raw_step_low(uint8_t axis)
 {
-#if BOARD_IS_BOARD2_2
-    if (axis == 0) gpio_clear_pin(STEP4_PORT, STEP4_PIN);
-#else
     if (axis == 0) gpio_clear_pin(STEP1_PORT, STEP1_PIN);
 #if AXIS_COUNT > 1
     else if (axis == 1) gpio_clear_pin(STEP2_PORT, STEP2_PIN);
     else if (axis == 2) gpio_clear_pin(STEP3_PORT, STEP3_PIN);
     else if (axis == 3) gpio_clear_pin(STEP4_PORT, STEP4_PIN);
-#endif
 #endif
 }
 

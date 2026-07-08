@@ -8,13 +8,10 @@
 
 #define BOARD_ID_BOARD1          1
 #define BOARD_ID_BOARD2          2
-#define BOARD_ID_BOARD2_2        22
 
 #ifndef BOARD_ID
-#define BOARD_ID                 BOARD_ID_BOARD1
+#define BOARD_ID                 BOARD_ID_BOARD2
 #endif
-#define BOARD_IS_BOARD2_FAMILY   ((BOARD_ID == BOARD_ID_BOARD2) || (BOARD_ID == BOARD_ID_BOARD2_2))
-#define BOARD_IS_BOARD2_2        (BOARD_ID == BOARD_ID_BOARD2_2)
 #define ENABLE_UART 1
 #ifndef ENABLE_ESTOP_LOGIC
 #define ENABLE_ESTOP_LOGIC       0
@@ -26,7 +23,7 @@
 #define BOARD_MOVE_CAN_ID        0x101
 #define BOARD_STATUS_CAN_ID      0x201
 #define BOARD_POSITION_CAN_ID    0x301
-#elif BOARD_IS_BOARD2_FAMILY
+#elif BOARD_ID == BOARD_ID_BOARD2
 #define AXIS_COUNT               1
 #define BOARD_STAGING_FRAME_COUNT 1
 #define BOARD_MOVE_CAN_ID        0x102

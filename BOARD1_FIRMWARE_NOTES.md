@@ -72,7 +72,7 @@ CAN모듈
 
 Board1 Motor ID 0~2는 TMC5160, Motor ID 3은 TMC2240을 사용합니다.
 
-Board2는 베이스 1축을 담당하며 감속비는 20입니다.
+Board2는 베이스 1축을 담당하며 감속비는 20, 드라이버는 TMC2240입니다.
 
 ## CAN ID
 

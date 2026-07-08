@@ -35,13 +35,8 @@
 #define TMC_MOSI_PIN  1
 #define TMC_MISO_PORT GPIOB
 #define TMC_MISO_PIN  0
-#if BOARD_IS_BOARD2_2
-#define TMC_CLK_PORT  GPIOB
-#define TMC_CLK_PIN   5
-#else
 #define TMC_CLK_PORT  GPIOA
 #define TMC_CLK_PIN   6
-#endif
 
 #define MOTOR_EN_PORT GPIOB
 #define MOTOR_EN_PIN  3
@@ -52,13 +47,8 @@
 #define LIM2_PIN  15
 #define LIM3_PORT GPIOB
 #define LIM3_PIN  4
-#if BOARD_IS_BOARD2_2
-#define LIM4_PORT GPIOC
-#define LIM4_PIN  8
-#else
 #define LIM4_PORT GPIOB
 #define LIM4_PIN  12
-#endif
 
 #define MCP_CS_PORT   GPIOA
 #define MCP_CS_PIN    9
