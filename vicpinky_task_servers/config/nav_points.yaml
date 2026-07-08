@@ -2,15 +2,15 @@ points:
   "4":
     dock:
       frame_id: map
-      x: 3.748
-      y: -18.219
-      yaw: 0.0
+      x: 2.98
+      y: -14.10
+      yaw: -3.04
 
     home:
       frame_id: map
-      x: 3.748
-      y: -18.219
-      yaw: 0.0
+      x: 2.98
+      y: -14.10
+      yaw: -3.04
 
     elevator_front:
       frame_id: map

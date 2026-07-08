@@ -1,16 +1,19 @@
+# Goal
 string mission_id
-string mission_type
 string pickup_location
 string delivery_location
 int32 target_floor
 string object_label
-string extra_json
+
 ---
+# Result
 bool success
 string final_state
 string message
+
 ---
-string state
-string active_task
+# Feedback
+string current_state
+string current_task
 float32 progress
-string message
+string detail
