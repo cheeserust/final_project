@@ -98,6 +98,22 @@ For detailed robot descriptions, including **URDF**, **assembly configuration**,
 
 👉 [roscue_arm_description](https://github.com/cheeserust/final_project/tree/main/roscue_arm_description)
 
+## Credits
+
+### Original Design
+
+The STM32 NUCLEO-L476RG enclosure was obtained from the following public repository.
+
+- Source: https://makerworld.com/ko/models/876518-nucleo-stm32-housing-casing?from=search#profileId-829560
+### Custom Design
+
+The following components were designed by our team:
+
+- Gripper Base
+- Finger Links
+- Servo Housing
+- Shaft
+
 ## Design Software
 
 - CAD Software: **Autodesk Fusion 360**
