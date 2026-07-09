@@ -9,6 +9,15 @@ const state = {
   locations: [],
   directNavLocations: [],
   navSending: false,
+  lastSeq: null,
+  pendingSync: false,
+  syncing: false,
+  syncStatus: "LIVE",
+  lastSyncAt: null,
+  recoveredLogs: [],
+  drivingMapRevision: null,
+  drivingMap: null,
+  drivingMapLoading: false,
 };
 
 const elevatorFsmStates = [
@@ -113,6 +122,94 @@ const setOverviewCard = (cardId, className) => {
   if (card) {
     card.className = `overview-card ${className}`;
   }
+};
+
+const taskHealthClass = (task = {}) => {
+  const taskState = String(task.state || "");
+  const result = String(task.button_press_result || "");
+  if (task.arm_fault || task.gripper_fault || result.includes("FAILED") || taskState === "FAULT") {
+    return "danger";
+  }
+  if (["PRESSING", "WAITING_TARGET_FLOOR", "EXITING", "ROBOT_STOPPED"].includes(taskState)) {
+    return "warning";
+  }
+  if (["SUCCESS", "ACTION_SUCCESS"].includes(result) || task.target_floor_arrived || task.exit_done) {
+    return "success";
+  }
+  return "neutral";
+};
+
+const latestSeqFromSnapshot = (snapshot) => {
+  const candidates = [Number(snapshot?.log_sync?.latest_seq)];
+  for (const collection of [snapshot?.events, snapshot?.mission_events]) {
+    if (!Array.isArray(collection)) continue;
+    collection.forEach((entry) => {
+      const seq = Number(entry?.seq);
+      if (Number.isFinite(seq)) candidates.push(seq);
+    });
+  }
+  return Math.max(0, ...candidates.filter(Number.isFinite));
+};
+
+const mergeRecoveredLogs = (logs) => {
+  const bySeq = new Map(
+    state.recoveredLogs
+      .filter((log) => Number.isFinite(Number(log.seq)))
+      .map((log) => [Number(log.seq), log]),
+  );
+
+  (Array.isArray(logs) ? logs : []).forEach((log) => {
+    const seq = Number(log?.seq);
+    if (Number.isFinite(seq)) {
+      bySeq.set(seq, log);
+    }
+  });
+
+  state.recoveredLogs = [...bySeq.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map((entry) => entry[1])
+    .slice(-160);
+};
+
+const renderSyncStatus = () => {
+  const chip = $("logSyncState");
+  if (!chip) return;
+
+  if (state.syncing) {
+    chip.textContent = "SYNCING";
+    chip.className = "status-chip warning";
+  } else if (state.syncStatus === "SYNCED") {
+    chip.textContent = "SYNCED";
+    chip.className = "status-chip success";
+  } else if (state.syncStatus === "FAILED") {
+    chip.textContent = "SYNC FAILED";
+    chip.className = "status-chip danger";
+  } else if (state.syncStatus === "OFFLINE") {
+    chip.textContent = "OFFLINE";
+    chip.className = "status-chip danger";
+  } else {
+    chip.textContent = "LIVE";
+    chip.className = "status-chip neutral";
+  }
+};
+
+const renderSyncReplay = () => {
+  const node = $("syncEventLog");
+  if (!node) return;
+
+  const recovered = state.recoveredLogs.slice(-60).reverse();
+  node.innerHTML = recovered.length
+    ? recovered
+        .map(
+          (event) => `
+            <li>
+              <span class="log-time">${escapeHtml(formatTime(event.time || event.timestamp))} | #${escapeHtml(event.seq ?? "-")} | ${escapeHtml(event.event_type || event.source || "-")}</span>
+              <span class="log-message">${escapeHtml(event.message || "")}</span>
+            </li>
+          `,
+        )
+        .join("")
+    : `<li class="empty">No replayed logs</li>`;
 };
 
 const manualDom = {
@@ -457,6 +554,38 @@ const renderManualStatus = (manual) => {
     `${last.controller || "manual"} ${last.state || "-"} | ${formatDuration(last.duration_sec)}${result ? ` | ${result}` : ""}`;
 };
 
+const renderElevatorButtonTask = (task = {}) => {
+  const health = taskHealthClass(task);
+  const taskState = task.state || "IDLE";
+  const floorText = task.target_floor ? `${task.target_floor}F` : "-";
+  const motionResult = task.button_press_result || "UNKNOWN";
+  const resultSource = task.button_press_result_source || "none";
+  const physicalResult = task.physical_button_result || "UNKNOWN";
+  const armFault = task.arm_fault ? "FAULT" : "OK";
+  const gripperFault = task.gripper_fault ? "FAULT" : "OK";
+
+  setOverviewCard("overviewButtonCard", health);
+  $("overviewButtonState").textContent = taskState;
+  $("overviewButtonMeta").textContent =
+    `${floorText} | motion ${motionResult} | physical ${physicalResult}`;
+
+  $("buttonTaskChip").textContent = taskState;
+  $("buttonTaskChip").className = `status-chip ${health === "neutral" ? "neutral" : health}`;
+  $("buttonTaskMeta").textContent =
+    task.last_message || task.last_event || "Waiting for mission events";
+  $("buttonTaskState").textContent = taskState;
+  $("buttonTaskTargetFloor").textContent = floorText;
+  $("buttonTaskMotionResult").textContent = `${motionResult} | ${resultSource}`;
+  $("buttonTaskPhysicalResult").textContent = physicalResult;
+  $("buttonTaskStarted").textContent = formatTime(task.button_press_started_at);
+  $("buttonTaskLastEvent").textContent =
+    task.last_event
+      ? `${task.last_event} | ${formatTime(task.last_event_time)}`
+      : "-";
+  $("buttonTaskArmFault").textContent = armFault;
+  $("buttonTaskGripperFault").textContent = gripperFault;
+};
+
 const renderMission = (mission, directNav) => {
   const status = mission.status;
   const feedback = mission.feedback;
@@ -769,8 +898,284 @@ const renderJoints = (joints) => {
     .join("");
 };
 
+const drivingChipClass = (stateName) => {
+  if (stateName === "NAVIGATING") return "success";
+  if (stateName === "MAP_SWITCHING" || stateName === "WAITING_ELEVATOR") return "warning";
+  if (stateName === "FAILED" || stateName === "ERROR") return "danger";
+  return "neutral";
+};
+
+const resizeDrivingCanvas = (canvas) => {
+  const wrapper = canvas.parentElement;
+  const cssWidth = Math.max(320, Math.floor(wrapper?.clientWidth || 960));
+  const cssHeight = Math.max(260, Math.min(620, Math.round(cssWidth * 0.58)));
+  const ratio = window.devicePixelRatio || 1;
+
+  canvas.style.width = `${cssWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+
+  const width = Math.floor(cssWidth * ratio);
+  const height = Math.floor(cssHeight * ratio);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return { width, height, ratio };
+};
+
+const drawEmptyDrivingMap = (message = "Waiting for /map") => {
+  const canvas = $("drivingMapCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const { width, height } = resizeDrivingCanvas(canvas);
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f9fbfd";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "#d7dee9";
+  ctx.lineWidth = Math.max(1, width / 960);
+  ctx.strokeRect(0, 0, width, height);
+  ctx.fillStyle = "#687386";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.max(13, Math.round(width / 64))}px sans-serif`;
+  ctx.fillText(message, width / 2, height / 2);
+};
+
+const DRIVING_MAP_ROTATION = 90;
+
+const mapFit = (map, canvasWidth, canvasHeight) => {
+  const width = Number(map?.width || 0);
+  const height = Number(map?.height || 0);
+  if (!width || !height) return null;
+  const rotated = DRIVING_MAP_ROTATION === 90 || DRIVING_MAP_ROTATION === 270;
+  const displayWidth = rotated ? height : width;
+  const displayHeight = rotated ? width : height;
+  const scale = Math.min(canvasWidth / displayWidth, canvasHeight / displayHeight);
+  return {
+    scale,
+    left: (canvasWidth - displayWidth * scale) / 2,
+    top: (canvasHeight - displayHeight * scale) / 2,
+    width,
+    height,
+    displayWidth,
+    displayHeight,
+  };
+};
+
+const worldToCanvas = (map, fit, x, y) => {
+  const origin = map.origin || {};
+  const resolution = Number(map.resolution || 0.05);
+  const mx = (Number(x) - Number(origin.x || 0)) / resolution;
+  const my = fit.height - (Number(y) - Number(origin.y || 0)) / resolution;
+  if (DRIVING_MAP_ROTATION === 90) {
+    return {
+      x: fit.left + (fit.height - my) * fit.scale,
+      y: fit.top + mx * fit.scale,
+    };
+  }
+  return {
+    x: fit.left + mx * fit.scale,
+    y: fit.top + my * fit.scale,
+  };
+};
+
+const makeMapCanvas = (map) => {
+  const width = Number(map?.width || 0);
+  const height = Number(map?.height || 0);
+  const data = Array.isArray(map?.data) ? map.data : [];
+  if (!width || !height || data.length < width * height) return null;
+
+  const offscreen = document.createElement("canvas");
+  offscreen.width = width;
+  offscreen.height = height;
+  const ctx = offscreen.getContext("2d");
+  const image = ctx.createImageData(width, height);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const sourceIndex = x + y * width;
+      const targetY = height - 1 - y;
+      const targetIndex = (x + targetY * width) * 4;
+      const occ = Number(data[sourceIndex]);
+      let shade = 232;
+      if (occ === -1) shade = 218;
+      else if (occ >= 65) shade = 35;
+      else if (occ > 0) shade = Math.max(70, 245 - occ * 2);
+      else shade = 252;
+
+      image.data[targetIndex] = shade;
+      image.data[targetIndex + 1] = shade;
+      image.data[targetIndex + 2] = shade;
+      image.data[targetIndex + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  return offscreen;
+};
+
+const drawPath = (ctx, map, fit, path, color, lineWidth) => {
+  const poses = Array.isArray(path?.poses) ? path.poses : [];
+  if (poses.length < 2) return;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  poses.forEach((pose, index) => {
+    const point = worldToCanvas(map, fit, pose.x, pose.y);
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.stroke();
+  ctx.restore();
+};
+
+const drawPose = (ctx, map, fit, pose, canvasWidth) => {
+  if (!pose?.available) return;
+  const point = worldToCanvas(map, fit, pose.x, pose.y);
+  const yaw = Number(pose.yaw || 0);
+  const yawRotation = DRIVING_MAP_ROTATION === 90 ? Math.PI / 2 : 0;
+  const radius = Math.max(7, canvasWidth / 90);
+  const arrow = radius * 2.2;
+
+  ctx.save();
+  ctx.translate(point.x, point.y);
+  ctx.rotate(-yaw + yawRotation);
+  ctx.fillStyle = "#e63946";
+  ctx.strokeStyle = "#8b1e27";
+  ctx.lineWidth = Math.max(1.5, canvasWidth / 620);
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(arrow, 0);
+  ctx.lineTo(arrow - radius * 0.55, -radius * 0.45);
+  ctx.moveTo(arrow, 0);
+  ctx.lineTo(arrow - radius * 0.55, radius * 0.45);
+  ctx.stroke();
+  ctx.restore();
+};
+
+const drawDrivingMap = (driving = {}) => {
+  const canvas = $("drivingMapCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const { width, height } = resizeDrivingCanvas(canvas);
+  const map = state.drivingMap;
+
+  if (!map) {
+    drawEmptyDrivingMap(driving?.map?.available ? "Loading map data..." : "Waiting for /map");
+    return;
+  }
+
+  const offscreen = makeMapCanvas(map);
+  const fit = mapFit(map, width, height);
+  if (!offscreen || !fit) {
+    drawEmptyDrivingMap("Invalid map data");
+    return;
+  }
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#f0f3f8";
+  ctx.fillRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.save();
+  if (DRIVING_MAP_ROTATION === 90) {
+    ctx.translate(fit.left + fit.displayWidth * fit.scale, fit.top);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(offscreen, 0, 0, fit.width * fit.scale, fit.height * fit.scale);
+  } else {
+    ctx.drawImage(
+      offscreen,
+      fit.left,
+      fit.top,
+      fit.width * fit.scale,
+      fit.height * fit.scale,
+    );
+  }
+  ctx.restore();
+  ctx.strokeStyle = "#18202f";
+  ctx.lineWidth = Math.max(1, width / 900);
+  ctx.strokeRect(
+    fit.left,
+    fit.top,
+    fit.displayWidth * fit.scale,
+    fit.displayHeight * fit.scale,
+  );
+
+  drawPath(ctx, map, fit, driving.global_path, "#006d77", Math.max(2, width / 360));
+  drawPath(ctx, map, fit, driving.local_path, "#f0b429", Math.max(2, width / 420));
+  drawPose(ctx, map, fit, driving.pose, width);
+};
+
+const loadDrivingMapIfNeeded = async (mapMeta = {}) => {
+  if (!mapMeta.available || !mapMeta.data_url) {
+    state.drivingMap = null;
+    state.drivingMapRevision = null;
+    drawDrivingMap({ map: mapMeta });
+    return;
+  }
+
+  if (state.drivingMapRevision === mapMeta.revision && state.drivingMap) {
+    return;
+  }
+  if (state.drivingMapLoading) return;
+
+  state.drivingMapLoading = true;
+  try {
+    const payload = await api(mapMeta.data_url);
+    state.drivingMap = payload.map || null;
+    state.drivingMapRevision = state.drivingMap?.revision ?? null;
+  } catch (error) {
+    $("drivingMapMeta").textContent = `Map fetch failed: ${error.message}`;
+  } finally {
+    state.drivingMapLoading = false;
+  }
+};
+
+const renderDriving = (driving = {}) => {
+  const map = driving.map || {};
+  const pose = driving.pose || {};
+  const odom = driving.odom || {};
+  const navState = driving.state || {};
+  const globalPath = driving.global_path || {};
+  const localPath = driving.local_path || {};
+
+  const label = navState.label || navState.state || "Waiting";
+  $("drivingStateChip").textContent = label;
+  $("drivingStateChip").className = `status-chip ${drivingChipClass(navState.state)}`;
+
+  if (map.available) {
+    $("drivingMapMeta").textContent = `${map.topic || "/map"} | rev ${map.revision} | age ${formatAge(map.age_ms)}`;
+    $("drivingMapInfo").textContent = `${map.width}x${map.height}, res ${formatNumber(map.resolution, 3)} m/px, origin (${formatNumber(map.origin?.x, 2)}, ${formatNumber(map.origin?.y, 2)})`;
+  } else {
+    $("drivingMapMeta").textContent = `Waiting for ${map.topic || "/map"}`;
+    $("drivingMapInfo").textContent = "No map";
+  }
+
+  $("drivingPose").textContent = pose.available
+    ? `x ${formatNumber(pose.x, 3)}, y ${formatNumber(pose.y, 3)}, yaw ${formatNumber(pose.yaw_deg, 1)}° | age ${formatAge(pose.age_ms)}`
+    : `Waiting for ${pose.topic || "/amcl_pose"}`;
+
+  $("drivingOdom").textContent = odom.available
+    ? `v ${formatNumber(odom.linear_x, 3)} m/s, w ${formatNumber(odom.angular_z, 3)} rad/s | age ${formatAge(odom.age_ms)}`
+    : `Waiting for ${odom.topic || "/odom"}`;
+
+  $("drivingPathInfo").textContent = `global ${globalPath.available ? `${globalPath.count} pts` : "-"}, local ${localPath.available ? `${localPath.count} pts` : "-"}`;
+  $("drivingNavState").textContent = `${navState.state || "IDLE"}${navState.mission_state ? ` | mission ${navState.mission_state}` : ""}${navState.detail ? ` | ${navState.detail}` : ""}`;
+
+  loadDrivingMapIfNeeded(map).then(() => drawDrivingMap(driving));
+  drawDrivingMap(driving);
+};
+
 const renderLogs = (snapshot) => {
   $("serverTime").textContent = formatTime(snapshot.server.time);
+  renderSyncStatus();
 
   const events = (snapshot.events || []).slice(-60).reverse();
   $("eventLog").innerHTML = events.length
@@ -778,7 +1183,7 @@ const renderLogs = (snapshot) => {
         .map(
           (event) => `
             <li>
-              <span class="log-time">${escapeHtml(formatTime(event.time))} | ${escapeHtml(event.kind)} | ${escapeHtml(event.level)}</span>
+              <span class="log-time">${escapeHtml(formatTime(event.time))} | #${escapeHtml(event.seq ?? "-")} | ${escapeHtml(event.event_type || event.kind)} | ${escapeHtml(event.level)}</span>
               <span class="log-message">${escapeHtml(event.message)}</span>
             </li>
           `,
@@ -792,13 +1197,15 @@ const renderLogs = (snapshot) => {
         .map(
           (event) => `
             <li>
-              <span class="log-time">${escapeHtml(formatTime(event.time))} | ${escapeHtml(event.state || "-")} | ${escapeHtml(event.level || "info")}</span>
+              <span class="log-time">${escapeHtml(formatTime(event.time))} | #${escapeHtml(event.seq ?? "-")} | ${escapeHtml(event.event_type || event.state || "-")} | ${escapeHtml(event.level || "info")}</span>
               <span class="log-message">${escapeHtml(event.message || "")}</span>
             </li>
           `,
         )
         .join("")
     : `<li class="empty">No mission events</li>`;
+
+  renderSyncReplay();
 
   const armLog = (snapshot.arm.log || []).slice(-40).reverse();
   $("armLog").innerHTML = armLog.length
@@ -821,21 +1228,82 @@ const renderSnapshot = (snapshot) => {
   syncManualDefaultsFromJoints();
   renderRobotConnection(snapshot.robot_connection);
   renderMission(snapshot.mission, snapshot.direct_nav);
+  renderElevatorButtonTask(snapshot.elevator_button_task || {});
   renderDirectNav(snapshot.direct_nav, snapshot.mission);
+  renderDriving(snapshot.driving || {});
   renderManualStatus(snapshot.manual);
   renderBoards(snapshot.arm);
   renderJoints(snapshot.joints);
   renderLogs(snapshot);
 };
 
+const syncMissingLogs = async (afterSeq) => {
+  if (!Number.isFinite(Number(afterSeq)) || Number(afterSeq) <= 0) {
+    return;
+  }
+
+  state.syncing = true;
+  state.syncStatus = "SYNCING";
+  renderSyncStatus();
+  setConnection("SYNCING | replaying missed event logs", "syncing");
+
+  try {
+    const data = await api(`/api/logs?after_seq=${encodeURIComponent(afterSeq)}`);
+    const logs = Array.isArray(data.logs) ? data.logs : [];
+    mergeRecoveredLogs(logs);
+    renderSyncReplay();
+    const newestSeq = Math.max(
+      Number(data.latest_seq || 0),
+      ...logs.map((log) => Number(log.seq || 0)).filter(Number.isFinite),
+    );
+    if (newestSeq > 0) {
+      state.lastSeq = Math.max(Number(state.lastSeq || 0), newestSeq);
+    }
+    state.pendingSync = false;
+    state.syncStatus = "SYNCED";
+    state.lastSyncAt = new Date().toISOString();
+    setConnection(`SYNCED | replayed ${logs.length} logs`, "online");
+  } catch (error) {
+    state.pendingSync = true;
+    state.syncStatus = "FAILED";
+    setConnection(`SYNC FAILED | ${error.message}`, "recovered");
+  } finally {
+    state.syncing = false;
+    renderSyncStatus();
+  }
+};
+
 const poll = async () => {
   if (state.polling) return;
   state.polling = true;
   try {
+    const previousSeq = Number(state.lastSeq || 0);
+    const shouldTrySync = state.pendingSync && previousSeq > 0;
     const snapshot = await api("/api/snapshot");
     renderSnapshot(snapshot);
+    const latestSeq = latestSeqFromSnapshot(snapshot);
+
+    if (shouldTrySync && latestSeq > previousSeq) {
+      await syncMissingLogs(previousSeq);
+    } else if (latestSeq > 0) {
+      state.lastSeq = Math.max(previousSeq, latestSeq);
+      if (state.pendingSync && latestSeq <= previousSeq) {
+        state.pendingSync = false;
+        state.syncStatus = "SYNCED";
+        state.lastSyncAt = new Date().toISOString();
+      } else if (!state.pendingSync && state.syncStatus !== "SYNCED") {
+        state.syncStatus = "LIVE";
+      }
+      renderSyncStatus();
+    }
   } catch (error) {
-    setConnection(`Offline | ${error.message}`, "offline");
+    state.pendingSync = state.lastSeq !== null;
+    state.syncStatus = "OFFLINE";
+    setConnection(
+      `OFFLINE | browser cannot reach central Flask snapshot: ${error.message}`,
+      "offline",
+    );
+    renderSyncStatus();
   } finally {
     state.polling = false;
   }
@@ -988,6 +1456,8 @@ const cancelDirectNav = async () => {
     setConnection(error.message, "offline");
   }
 };
+
+window.addEventListener("resize", () => drawDrivingMap({}));
 
 document.addEventListener("DOMContentLoaded", () => {
   $("missionForm").addEventListener("submit", startMission);

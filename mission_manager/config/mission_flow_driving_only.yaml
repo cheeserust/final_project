@@ -17,6 +17,21 @@ mission:
 
     # Manual step: press the 4F elevator call button.
 
+    - state: DRIVE_FORWARD_TO_ELEVATOR_VIEW
+      task: drive_straight
+      target: forward
+      location: elevator_door_4f
+      extra:
+        distance_m: 0.60
+        speed_mps: 0.15
+
+    - state: FACE_ELEVATOR_DOOR
+      task: base_rotate
+      target: left_80
+      location: elevator_door_4f
+      extra:
+        angle_deg: 80
+
     - state: WAIT_ELEVATOR_OPEN
       task: wait_door_open
       target: elevator_door_4f
@@ -74,6 +89,21 @@ mission:
         cmd_vel_topic: /cmd_vel
 
     # Manual step: press the 5F elevator call button.
+
+    - state: DRIVE_FORWARD_TO_ELEVATOR_VIEW_RETURN
+      task: drive_straight
+      target: forward
+      location: elevator_door_5f
+      extra:
+        distance_m: 0.60
+        speed_mps: 0.15
+
+    - state: FACE_ELEVATOR_DOOR_RETURN
+      task: base_rotate
+      target: left_80
+      location: elevator_door_5f
+      extra:
+        angle_deg: 80
 
     - state: WAIT_ELEVATOR_OPEN_RETURN
       task: wait_door_open

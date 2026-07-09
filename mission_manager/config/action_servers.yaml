@@ -11,6 +11,18 @@ actions:
     timeout_sec: 120.0
     retry: 1
 
+  drive_straight:
+    server: /base/drive_straight
+    task_id: drive_straight
+    timeout_sec: 30.0
+    retry: 0
+
+  base_rotate:
+    server: /base/rotate
+    task_id: rotate
+    timeout_sec: 30.0
+    retry: 1
+
   board_elevator:
     server: /elevator/board
     task_id: board_elevator

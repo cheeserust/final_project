@@ -16,6 +16,11 @@ def generate_launch_description():
     manual_arm_mode = LaunchConfiguration('manual_arm_mode')
     enable_manual_arm = LaunchConfiguration('enable_manual_arm')
     enable_manual_gripper = LaunchConfiguration('enable_manual_gripper')
+    map_topic = LaunchConfiguration('map_topic')
+    amcl_pose_topic = LaunchConfiguration('amcl_pose_topic')
+    odom_topic = LaunchConfiguration('odom_topic')
+    global_path_topic = LaunchConfiguration('global_path_topic')
+    local_path_topic = LaunchConfiguration('local_path_topic')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -53,6 +58,31 @@ def generate_launch_description():
             default_value='true',
             description='Show and enable manual gripper controls.',
         ),
+        DeclareLaunchArgument(
+            'map_topic',
+            default_value='/map',
+            description='OccupancyGrid topic used by the driving map panel.',
+        ),
+        DeclareLaunchArgument(
+            'amcl_pose_topic',
+            default_value='/amcl_pose',
+            description='AMCL pose topic used by the driving map panel.',
+        ),
+        DeclareLaunchArgument(
+            'odom_topic',
+            default_value='/odom',
+            description='Odometry topic used by the driving map panel.',
+        ),
+        DeclareLaunchArgument(
+            'global_path_topic',
+            default_value='/plan',
+            description='Global path topic used by the driving map panel.',
+        ),
+        DeclareLaunchArgument(
+            'local_path_topic',
+            default_value='/local_plan',
+            description='Local path topic used by the driving map panel.',
+        ),
         Node(
             package='vicpinky_gui',
             executable='vicpinky_gui_node',
@@ -75,6 +105,11 @@ def generate_launch_description():
                     enable_manual_gripper,
                     value_type=bool,
                 ),
+                'map_topic': map_topic,
+                'amcl_pose_topic': amcl_pose_topic,
+                'odom_topic': odom_topic,
+                'global_path_topic': global_path_topic,
+                'local_path_topic': local_path_topic,
             }],
         ),
     ])
