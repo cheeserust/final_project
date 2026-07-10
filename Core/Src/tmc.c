@@ -74,7 +74,7 @@ static void tmc5160_init_axis(uint8_t axis_id)
     if (axis_id == 0) {
         tmc_write(axis_id, TMC_REG_IHOLD_IRUN, (6 << 16) | (26 << 8) | 16);  // IHOLDDELAY=6 IRUN=24 IHOLD=17
     } else if (axis_id == 2) {
-        tmc_write(axis_id, TMC_REG_IHOLD_IRUN, (6 << 16) | (18 << 8) | 10);  // IHOLDDELAY=6 IRUN=18 IHOLD=10
+        tmc_write(axis_id, TMC_REG_IHOLD_IRUN, (6 << 16) | (16 << 8) | 4);  // IHOLDDELAY=6 IRUN=18 IHOLD=10
     } else {
         tmc_write(axis_id, TMC_REG_IHOLD_IRUN, (6 << 16) | (16 << 8) | 4);  // IHOLDDELAY=6 IRUN=16 IHOLD=4
     }

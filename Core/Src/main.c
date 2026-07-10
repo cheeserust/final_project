@@ -87,8 +87,8 @@ int main(void)
     last_status_ms = global_tick_ms;
     last_feedback_ms = global_tick_ms;
     last_can_service_ms = global_tick_ms;
-    board_can_send_status();
-    board_can_send_position_feedback_all();
+    board_can_queue_status();
+    board_can_queue_position_feedback_all();
     uart_debug_print_loop_ready(debug_uart);
 
     while (1) {
@@ -115,6 +115,11 @@ int main(void)
             board_can_request_status_event();  // 다축 명령 수신 타임아웃 발생 시 상태 송신
         }
 
+        // TIM3가 queue 소진 후 overflow clear 요청을 승인하면 즉시 status로 ack
+        if (trajectory_take_queue_overflow_clear_ack()) {
+            board_can_request_status_event();
+        }
+
         if ((global_tick_ms - last_can_service_ms) >= 1000) {
             last_can_service_ms = global_tick_ms;
             (void)mcp2515_service();
@@ -123,16 +128,19 @@ int main(void)
         // 5. 100ms마다 현재 위치 feedback 송신
         if ((global_tick_ms - last_feedback_ms) >= 100) {
             last_feedback_ms = global_tick_ms;
-            board_can_send_position_feedback_all();
+            board_can_queue_position_feedback_all();
         }
 
         // 6. 100ms마다 현재 상태를 CAN으로 송신
         if ((global_tick_ms - last_status_ms) >= 100) {
             last_status_ms = global_tick_ms;  // 상태 송신 기준 시간 갱신
-            board_can_send_status();          // 100ms 주기 상태 프레임 송신
+            board_can_queue_status();         // 100ms 주기 최신 상태 프레임 갱신
         }
 
         // 7. 주요 이벤트 상태 송신은 한 loop에서 모아 처리
         board_can_flush_status_event();
+
+        // 8. TX buffer가 busy면 기존 frame을 보존하고 다음 loop에서 재시도
+        board_can_service_tx();
     }
 }

@@ -184,12 +184,9 @@ static void mcp_bit_modify(uint8_t addr, uint8_t mask, uint8_t data)
     mcp2515_cs_high();
 }
 
-void mcp2515_abort_all_tx(void)
+static void mcp2515_abort_all_tx(void)
 {
-    /* Bring-up robustness:
-     * If STM32 booted before Linux can0 was up, MCP2515 may keep old TXREQ
-     * frames retrying forever. Abort them so the next command response can be sent.
-     */
+    /* Controller reset/recovery path only. Runtime TX busy must never call this. */
     mcp_bit_modify(MCP_CANCTRL, 0x10, 0x10);  /* ABAT=1 */
     mcp_delay();
     mcp_bit_modify(MCP_CANCTRL, 0x10, 0x00);  /* ABAT=0 */
@@ -457,48 +454,46 @@ static void mcp2515_note_send_result(uint8_t ok)
     }
 }
 
-uint8_t mcp2515_send_frame(const CanFrame *frame)
+Mcp2515SendResult mcp2515_send_frame(const CanFrame *frame)
 {
     int ret;
-    uint8_t retry;
 
-    if (frame == 0 || frame->dlc > 8) return 0;
+    if (frame == 0 || frame->dlc > 8) return MCP2515_SEND_FAULT;
     if (!mcp2515_service()) {
         mcp2515_note_send_result(0);
-        return 0;
+        return MCP2515_SEND_FAULT;
     }
 
-    for (retry = 0; retry < 2; retry++) {
-        ret = mcp_try_load_tx(MCP_TXB0CTRL, MCP_TXB0SIDH, MCP_TXB0SIDL,
-                              MCP_TXB0DLC, MCP_TXB0D0, MCP_RTS_TX0, frame);
-        if (ret == 0) {
-            mcp2515_note_send_result(1);
-            return 1;
-        }
-
-        ret = mcp_try_load_tx(MCP_TXB1CTRL, MCP_TXB1SIDH, MCP_TXB1SIDL,
-                              MCP_TXB1DLC, MCP_TXB1D0, MCP_RTS_TX1, frame);
-        if (ret == 0) {
-            mcp2515_note_send_result(1);
-            return 1;
-        }
-
-        ret = mcp_try_load_tx(MCP_TXB2CTRL, MCP_TXB2SIDH, MCP_TXB2SIDL,
-                              MCP_TXB2DLC, MCP_TXB2D0, MCP_RTS_TX2, frame);
-        if (ret == 0) {
-            mcp2515_note_send_result(1);
-            return 1;
-        }
-
-        /* All TX buffers are busy. During bring-up this commonly happens when
-         * the board tried to transmit before the USB2CAN side was up. Abort stale
-         * retries once and load the current response again.
-         */
-        mcp2515_abort_all_tx();
+    ret = mcp_try_load_tx(MCP_TXB0CTRL, MCP_TXB0SIDH, MCP_TXB0SIDL,
+                          MCP_TXB0DLC, MCP_TXB0D0, MCP_RTS_TX0, frame);
+    if (ret == 0) {
+        mcp2515_note_send_result(1);
+        return MCP2515_SEND_OK;
     }
+    if (ret == -1) goto send_fault;
 
+    ret = mcp_try_load_tx(MCP_TXB1CTRL, MCP_TXB1SIDH, MCP_TXB1SIDL,
+                          MCP_TXB1DLC, MCP_TXB1D0, MCP_RTS_TX1, frame);
+    if (ret == 0) {
+        mcp2515_note_send_result(1);
+        return MCP2515_SEND_OK;
+    }
+    if (ret == -1) goto send_fault;
+
+    ret = mcp_try_load_tx(MCP_TXB2CTRL, MCP_TXB2SIDH, MCP_TXB2SIDL,
+                          MCP_TXB2DLC, MCP_TXB2D0, MCP_RTS_TX2, frame);
+    if (ret == 0) {
+        mcp2515_note_send_result(1);
+        return MCP2515_SEND_OK;
+    }
+    if (ret == -1) goto send_fault;
+
+    /* All three buffers are legitimately busy. Preserve them and retry later. */
+    return MCP2515_SEND_BUSY;
+
+send_fault:
     mcp2515_note_send_result(0);
-    return 0;
+    return MCP2515_SEND_FAULT;
 }
 
 void spi2_init(void)

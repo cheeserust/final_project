@@ -12,7 +12,7 @@
 #ifndef BOARD_ID
 #define BOARD_ID                 BOARD_ID_BOARD1
 #endif
-#define ENABLE_UART 1
+#define ENABLE_UART 0
 #ifndef ENABLE_ESTOP_LOGIC
 #define ENABLE_ESTOP_LOGIC       0
 #endif
@@ -91,6 +91,7 @@ extern volatile uint8_t g_enabled;
 extern volatile uint8_t g_estop;
 extern volatile uint8_t g_state;
 extern volatile uint8_t g_error_code;
+extern volatile uint8_t g_queue_overflow;
 extern volatile uint8_t g_motion_active;
 extern volatile uint8_t g_homing_active;
 extern volatile uint8_t g_homing_done_bits;
@@ -104,5 +105,6 @@ extern volatile uint32_t global_tick_ms;
 uint8_t system_homing_done_bits(void);
 uint8_t system_enabled_status(void);
 uint8_t system_all_homed(void);
+uint8_t system_reported_error_code(void);
 
 #endif

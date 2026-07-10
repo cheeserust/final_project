@@ -65,16 +65,13 @@ static uint8_t limit_switch_debouncing_filtering(uint8_t id)
     return (limit_switch_debounce_count[id] >= LIMIT_SWITCH_DEBOUNCE_TICKS) ? 1 : 0;
 }
 
-/* 외부(상위 상태머신 등)에서 "지금 이 순간 어떤 리밋스위치가 눌려있는지"
- * 비트로 한번에 조회할 때 쓰는 함수. 이건 "외부에 보여주는 결과값"이라
- * 비트로 반환하는 게 자연스러워서 그대로 둔다 (내부 로직용 비트마스크와는 다름). */
 uint8_t stepper_limit_switch_status_bits(void)
 {
     uint8_t bits = 0;
 
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         if (limit_switch_pressed_raw(i)) {
-            bits |= (uint8_t)(1u << i);
+            bits |= (uint8_t)(1 << i);
         }
     }
 
@@ -151,7 +148,7 @@ static void step_pin_high(uint8_t id)
 #endif
 }
 
-//GPIO 저수준 제어 (STEP DIR 핀 켜고 끄기)
+//STEP DIR 핀 켜고 끄기
 static void step_pin_low(uint8_t id)
 {
     if (id == 0) {
@@ -217,9 +214,9 @@ void stepper_cancel_motion(void)
 }
 
 //
-/* =========================================================================
- * 초기화 / 정지
- * ========================================================================= */
+//=========================================
+ //초기화 / 정지
+ //========================================
 
 void stepper_init(void)
 {
@@ -346,6 +343,7 @@ void stepper_homing_1ms(void)
         for (uint8_t i = 0; i < AXIS_COUNT; i++) {
             g_homing_step_request[i] = 0;
         }
+        trajectory_sync_planned_to_current();
         g_homing_active = 0;
         g_state = STATE_IDLE;
     }
@@ -368,9 +366,8 @@ void stepper_1ms_interrupt(void)
     g_limit_switch_bitmask = bitmask;
 }
 
-/* =========================================================================
- * 메인 진입점: 10us 타이머 인터럽트에서 호출됨
- * ========================================================================= */
+
+ //10us 타이머 인터럽트에서 호출됨
 void stepper_10us_interrupt(void)
 {
     // 1. 이전 스텝 핀 클리어
@@ -387,17 +384,17 @@ void stepper_10us_interrupt(void)
             // 1ms 방에서 이 축에 스텝을 쏘라고 요청했는지 확인
             if (g_homing_step_request[i]) {
 
-                // 1. 요청을 확인했으니 플래그를 즉시 클리어 (중복 처리 방지)
+                // 1. 요청을 확인 플래그 클리어
                 g_homing_step_request[i] = 0;
 
-                // 2. 정확한 하드웨어 타이밍으로 신호 출력
+                // 2. 하드웨어 타이밍으로 신호 출력
                 set_dir(i, home_dir[i]);
                 step_pin_high(i);
                 if (home_dir[i] > 0) g_current_step[i]++;
                 else                 g_current_step[i]--;
             }
         }
-        return; // 홈잉 중에는 아래의 일반 모션 로직을 타지 않음
+        return; // 홈잉 중에는 여기서 끝
     }
 
     // 3. 모션 구동 중이 아니라면 종료

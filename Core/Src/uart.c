@@ -350,6 +350,7 @@ static uint8_t motion_command_allowed(void)
     if (!g_enabled) return 0;
     if (ESTOP_ACTIVE()) return 0;
     if (g_error_code != ERR_NONE) return 0;
+    if (g_queue_overflow) return 0;
     if (g_homing_active) return 0;
     if (!system_all_homed()) return 0;
     return 1;
@@ -370,7 +371,7 @@ static void print_status(void)
     __disable_irq();
     tick_snapshot = global_tick_ms;
     state_snapshot = g_state;
-    error_snapshot = g_error_code;
+    error_snapshot = system_reported_error_code();
     enabled_snapshot = g_enabled;
     estop_snapshot = g_estop;
     homed_snapshot = g_homing_done_bits;
@@ -416,6 +417,9 @@ static void print_status(void)
 
 static void handle_enable(void)
 {
+    if (g_error_code != ERR_NONE || g_state == STATE_ERROR || g_state == STATE_ESTOP) {
+        trajectory_clear();
+    }
     g_estop = 0;
     g_error_code = ERR_NONE;
     g_enabled = 1;
@@ -442,8 +446,17 @@ static void handle_disable(void)
 
 static void handle_clear_error(void)
 {
-    g_error_code = ERR_NONE;
-    trajectory_cancel_staging();
+    if (g_queue_overflow && g_error_code == ERR_NONE) {
+        trajectory_request_queue_overflow_clear();
+        uart2_puts("OK clear pending until queue drains\n");
+        print_prompt();
+        return;
+    } else {
+        g_error_code = ERR_NONE;
+        trajectory_cancel_queue_overflow_clear();
+        g_queue_overflow = 0;
+        trajectory_clear();
+    }
     if (!ESTOP_ACTIVE()) {
         g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     }
@@ -453,7 +466,7 @@ static void handle_clear_error(void)
 
 static void handle_home(void)
 {
-    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE || g_queue_overflow) {
         uart2_puts("ERR: enable first and clear estop/error\n");
         print_prompt();
         return;
@@ -474,7 +487,7 @@ static void handle_home_axis(uint8_t axis)
         print_prompt();
         return;
     }
-    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
+    if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE || g_queue_overflow) {
         uart2_puts("ERR: enable first and clear estop/error\n");
         print_prompt();
         return;
@@ -629,7 +642,7 @@ static void handle_raw_jog_command(const char *line)
         print_prompt();
         return;
     }
-    if (ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
+    if (ESTOP_ACTIVE() || g_error_code != ERR_NONE || g_queue_overflow) {
         uart2_puts("ERR: clear estop/error first\n");
         print_prompt();
         return;
@@ -675,6 +688,7 @@ static void handle_raw_jog_command(const char *line)
     }
 
     raw_step_low(axis);
+    trajectory_sync_planned_to_current();
     if (stopped) uart2_puts("OK raw jog stopped\n");
     else uart2_puts("OK raw jog done\n");
     print_prompt();
@@ -746,7 +760,7 @@ static void handle_move_command(const char *line)
 
     __disable_irq();
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
-        targets[i] = g_current_step[i];
+        targets[i] = trajectory_get_planned_step(i);
     }
     __enable_irq();
     targets[axis] = selected_target;
@@ -760,6 +774,8 @@ static void handle_move_command(const char *line)
             return;
         }
         if (result == TRAJECTORY_STAGING_QUEUE_FULL) {
+            trajectory_cancel_queue_overflow_clear();
+            g_queue_overflow = 1;
             uart2_puts("ERR: queue full\n");
             print_prompt();
             return;

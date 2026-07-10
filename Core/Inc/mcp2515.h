@@ -9,14 +9,19 @@ typedef struct {
     uint8_t data[8];
 } CanFrame;
 
+typedef enum {
+    MCP2515_SEND_BUSY = 0,
+    MCP2515_SEND_OK = 1,
+    MCP2515_SEND_FAULT = 2
+} Mcp2515SendResult;
+
 extern volatile uint8_t g_mcp2515_irq_pending;
 
 void spi2_init(void);
 uint8_t mcp2515_init_500k(void);
 uint8_t mcp2515_read_frame(CanFrame *frame);
-uint8_t mcp2515_send_frame(const CanFrame *frame);
+Mcp2515SendResult mcp2515_send_frame(const CanFrame *frame);
 uint8_t mcp2515_int_asserted(void);
 uint8_t mcp2515_service(void);
-void mcp2515_abort_all_tx(void);
 
 #endif

@@ -5,6 +5,11 @@
 
 static volatile uint8_t g_status_event;
 static uint8_t g_status_sequence_counter;
+static CanFrame g_pending_status_frame;
+static CanFrame g_pending_position_frame;
+static uint8_t g_status_tx_pending;
+static uint8_t g_position_tx_pending;
+static uint32_t g_next_tx_retry_ms;
 
 static int32_t read_i32_le(const uint8_t *p)
 {
@@ -65,6 +70,8 @@ void board_can_request_status_event(void)
 static void enter_error(uint8_t error_code)
 {
     trajectory_clear();
+    trajectory_cancel_queue_overflow_clear();
+    g_queue_overflow = 0;
     g_error_code = error_code;
     if (!ESTOP_ACTIVE()) g_state = STATE_ERROR;
     board_can_request_status_event();
@@ -91,6 +98,8 @@ static void handle_estop(const CanFrame *frame)
     g_estop = 1;
     g_enabled = 0;
     g_error_code = ERR_NONE;
+    trajectory_cancel_queue_overflow_clear();
+    g_queue_overflow = 0;
     g_homing_active = 0;
     g_state = STATE_ESTOP;
     trajectory_clear();
@@ -144,6 +153,11 @@ static void handle_arm_homing(const CanFrame *frame)
         return;
     }
 
+    if (g_queue_overflow) {
+        board_can_request_status_event();
+        return;
+    }
+
     if (!g_enabled || ESTOP_ACTIVE() || g_error_code != ERR_NONE) {
         enter_error(ERR_INVALID_CMD);
         return;
@@ -164,8 +178,16 @@ static void handle_clear_error(const CanFrame *frame)
         return;
     }
 
-    g_error_code = ERR_NONE;
-    trajectory_clear();
+    if (g_queue_overflow && g_error_code == ERR_NONE) {
+        trajectory_request_queue_overflow_clear();
+        board_can_request_status_event();
+        return;
+    } else {
+        g_error_code = ERR_NONE;
+        trajectory_cancel_queue_overflow_clear();
+        g_queue_overflow = 0;
+        trajectory_clear();
+    }
     if (!ESTOP_ACTIVE()) {
         g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     }
@@ -187,6 +209,10 @@ static void handle_board_move(const CanFrame *frame)
 
     if (!frame_is_exact_8_bytes(frame)) {
         enter_error(ERR_INVALID_CMD);
+        return;
+    }
+    if (g_queue_overflow) {
+        board_can_request_status_event();
         return;
     }
     if (!motion_command_allowed()) {
@@ -220,7 +246,9 @@ static void handle_board_move(const CanFrame *frame)
         return;
     }
     if (result == TRAJECTORY_STAGING_QUEUE_FULL) {
-        enter_error(ERR_QUEUE_FULL);
+        trajectory_cancel_queue_overflow_clear();
+        g_queue_overflow = 1;
+        board_can_request_status_event();
         return;
     }
     if (result == TRAJECTORY_STAGING_COMMITTED) {
@@ -253,13 +281,14 @@ void board_can_handle_frame(const CanFrame *frame)
     }
 }
 
-void board_can_send_status(void)
+void board_can_queue_status(void)
 {
     CanFrame frame;
     int32_t current_snapshot[AXIS_COUNT];
     int32_t target_snapshot[AXIS_COUNT];
     uint8_t state_snapshot;
-    uint8_t error_snapshot;
+    uint8_t fatal_error_snapshot;
+    uint8_t reported_error_snapshot;
     uint8_t enabled_snapshot;
     uint8_t homing_done_snapshot;
     uint8_t homing_active_snapshot;
@@ -274,7 +303,8 @@ void board_can_send_status(void)
         target_snapshot[i] = g_target_step[i];
     }
     state_snapshot = g_state;
-    error_snapshot = g_error_code;
+    fatal_error_snapshot = g_error_code;
+    reported_error_snapshot = system_reported_error_code();
     enabled_snapshot = g_enabled;
     homing_done_snapshot = g_homing_done_bits;
     homing_active_snapshot = g_homing_active;
@@ -283,7 +313,7 @@ void board_can_send_status(void)
     for (uint8_t i = 0; i < AXIS_COUNT && i < 4; i++) {
         axis_flags[i] = make_position_flags(i,
                                             state_snapshot,
-                                            error_snapshot,
+                                            fatal_error_snapshot,
                                             enabled_snapshot,
                                             homing_done_snapshot,
                                             homing_active_snapshot,
@@ -293,15 +323,16 @@ void board_can_send_status(void)
     }
 
     frame.data[0] = state_snapshot;
-    frame.data[1] = error_snapshot;
+    frame.data[1] = reported_error_snapshot;
     frame.data[2] = (uint8_t)(axis_flags[0] | (uint8_t)(axis_flags[1] << 4));
     frame.data[3] = (uint8_t)(axis_flags[2] | (uint8_t)(axis_flags[3] << 4));
     frame.data[4] = stepper_limit_switch_status_bits();
     frame.data[5] = get_free_axis_command_count();
     frame.data[6] = system_enabled_status();
-    frame.data[7] = g_status_sequence_counter++;
+    frame.data[7] = g_status_sequence_counter;
 
-    (void)mcp2515_send_frame(&frame);
+    g_pending_status_frame = frame;
+    g_status_tx_pending = 1;
 }
 
 static uint8_t make_position_flags(uint8_t motor_id,
@@ -338,7 +369,7 @@ static uint8_t make_position_flags(uint8_t motor_id,
     return flags;
 }
 
-void board_can_send_position_feedback_all(void)
+void board_can_queue_position_feedback_all(void)
 {
     int32_t current_snapshot[AXIS_COUNT];
     CanFrame frame;
@@ -356,7 +387,35 @@ void board_can_send_position_feedback_all(void)
         write_i16_le(&frame.data[i * 2], clamp_i16(step_to_angle(i, current_snapshot[i])));
     }
 
-    (void)mcp2515_send_frame(&frame);
+    g_pending_position_frame = frame;
+    g_position_tx_pending = 1;
+}
+
+void board_can_service_tx(void)
+{
+    Mcp2515SendResult result;
+
+    if ((int32_t)(global_tick_ms - g_next_tx_retry_ms) < 0) return;
+
+    if (g_status_tx_pending) {
+        result = mcp2515_send_frame(&g_pending_status_frame);
+        if (result == MCP2515_SEND_OK) {
+            g_status_tx_pending = 0;
+            g_status_sequence_counter++;
+        } else {
+            g_next_tx_retry_ms = global_tick_ms + 1;
+            return;
+        }
+    }
+
+    if (g_position_tx_pending) {
+        result = mcp2515_send_frame(&g_pending_position_frame);
+        if (result == MCP2515_SEND_OK) {
+            g_position_tx_pending = 0;
+        } else {
+            g_next_tx_retry_ms = global_tick_ms + 1;
+        }
+    }
 }
 
 void board_can_flush_status_event(void)
@@ -364,5 +423,5 @@ void board_can_flush_status_event(void)
     if (!g_status_event) return;
 
     g_status_event = 0;
-    board_can_send_status();
+    board_can_queue_status();
 }
