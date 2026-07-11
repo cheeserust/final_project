@@ -30,10 +30,10 @@ ARM_JOINT_NAMES = [
 
 ARM_MIN_POSITIONS_RAD = [
     math.radians(-90.0),
+    math.radians(-85.0),
+    math.radians(-78.1),
+    math.radians(-91.5),
     math.radians(-90.0),
-    math.radians(-80.0),
-    math.radians(-90.0),
-    math.radians(-170.0),
 ]
 
 ARM_MAX_POSITIONS_RAD = [
@@ -41,7 +41,7 @@ ARM_MAX_POSITIONS_RAD = [
     math.radians(90.0),
     math.radians(80.0),
     math.radians(90.0),
-    math.radians(170.0),
+    math.radians(90.0),
 ]
 
 

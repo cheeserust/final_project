@@ -14,6 +14,7 @@ const state = {
   syncing: false,
   syncStatus: "LIVE",
   lastSyncAt: null,
+  snapshotFailures: 0,
   recoveredLogs: [],
   drivingMapRevision: null,
   drivingMap: null,
@@ -51,16 +52,59 @@ const elevatorFsmStates = [
 
 const $ = (id) => document.getElementById(id);
 
+const API_DEFAULT_TIMEOUT_MS = 5000;
+const SNAPSHOT_TIMEOUT_MS = 2000;
+const OFFLINE_FAILURE_THRESHOLD = 2;
+
 const api = async (path, options = {}) => {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
-  const data = await response.json();
-  if (!response.ok || data.ok === false) {
-    throw new Error(data.message || `HTTP ${response.status}`);
+  const { timeoutMs = API_DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const providedSignal = fetchOptions.signal;
+  let abortListener = null;
+  let timeoutId = null;
+
+  if (providedSignal) {
+    abortListener = () => controller.abort();
+    if (providedSignal.aborted) {
+      controller.abort();
+    } else {
+      providedSignal.addEventListener("abort", abortListener, { once: true });
+    }
   }
-  return data;
+
+  if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  }
+
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(fetchOptions.headers || {}),
+    };
+    delete fetchOptions.headers;
+    delete fetchOptions.signal;
+
+    const response = await fetch(path, {
+      headers,
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.message || `HTTP ${response.status}`);
+    }
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(`Request timed out after ${(timeoutMs / 1000).toFixed(1)} s`);
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+    if (providedSignal && abortListener) {
+      providedSignal.removeEventListener("abort", abortListener);
+    }
+  }
 };
 
 const escapeHtml = (value) =>
@@ -246,6 +290,7 @@ const applyConfig = (config) => {
     ? config.mission_locations
     : [];
   const defaults = config.default_goal || {};
+  const armTasks = Array.isArray(config.arm_tasks) ? config.arm_tasks : [];
   const navDefaults = config.default_nav || {};
   const pickup = $("pickupLocation");
   const delivery = $("deliveryLocation");
@@ -270,6 +315,10 @@ const applyConfig = (config) => {
 
   $("missionId").value = defaults.mission_id || "";
   $("objectLabel").value = defaults.object_label || "box";
+  $("armTaskName").innerHTML = armTasks
+    .map((task) => `<option value="${escapeHtml(task.name)}">${escapeHtml(task.label || task.name)}</option>`)
+    .join("");
+  $("armTaskName").value = defaults.arm_task_name || "pick_object_2";
   $("targetFloor").value = defaults.target_floor ?? 5;
   pickup.value = defaults.pickup_location || "home";
   delivery.value = defaults.delivery_location || "object_place";
@@ -595,36 +644,41 @@ const renderMission = (mission, directNav) => {
   const feedback = mission.feedback;
   const result = mission.result;
   const goal = mission.goal;
+  const display = mission.display || {};
   const directNavActive = Boolean(directNav?.active);
 
   $("missionReady").textContent = mission.action_ready ? "Ready" : "Offline";
   $("missionReady").className = `status-chip ${mission.action_ready ? "success" : "danger"}`;
 
   const stateText =
+    display.state ||
     status?.state ||
     goal?.state ||
     result?.status ||
     (mission.active ? "ACTIVE" : "IDLE");
-  $("missionState").textContent = `${stateText} | age ${formatAge(mission.status_age_ms)}`;
+  const sourceText = display.source ? ` | ${display.source}` : "";
+  $("missionState").textContent =
+    `${stateText}${sourceText} | age ${formatAge(display.status_age_ms ?? mission.status_age_ms)}`;
   $("overviewMissionState").textContent = stateText;
 
   const progress = clamp(
-    Number(status?.progress ?? feedback?.progress ?? (result?.success ? 1 : 0)),
+    Number(display.progress ?? status?.progress ?? feedback?.progress ?? (result?.success ? 1 : 0)),
     0,
     1,
   );
   $("missionProgressText").textContent = `${Math.round(progress * 100)}%`;
   $("missionProgressBar").style.width = `${progress * 100}%`;
-  $("overviewMissionMeta").textContent = `Progress ${Math.round(progress * 100)}% | age ${formatAge(mission.status_age_ms)}`;
+  $("overviewMissionMeta").textContent =
+    `Progress ${Math.round(progress * 100)}% | age ${formatAge(display.status_age_ms ?? mission.status_age_ms)}`;
 
   $("missionTask").textContent =
-    status?.active_task || feedback?.current_task || "-";
+    display.active_task || status?.active_task || feedback?.current_task || "-";
   $("missionMessage").textContent =
-    status?.message || feedback?.detail || goal?.state || "-";
+    display.message || status?.message || feedback?.detail || goal?.state || "-";
   $("missionResult").textContent = result
     ? `${result.status}: ${result.message}`
     : "-";
-  renderElevatorFsm(status, feedback);
+  renderElevatorFsm(display, status, feedback);
 
   $("startMissionButton").disabled =
     !mission.action_ready || mission.active || directNavActive;
@@ -640,9 +694,9 @@ const renderMission = (mission, directNav) => {
   setOverviewCard("overviewMissionCard", missionHealth);
   setOverviewCard("overviewTaskCard", mission.active ? "warning" : "neutral");
   $("overviewActiveTask").textContent =
-    status?.active_task || feedback?.current_task || "-";
+    display.active_task || status?.active_task || feedback?.current_task || "-";
   $("overviewTaskMeta").textContent =
-    status?.message || feedback?.detail || result?.message || "No active task";
+    display.message || status?.message || feedback?.detail || result?.message || "No active task";
 };
 
 const renderDirectNav = (directNav, mission) => {
@@ -773,8 +827,10 @@ const renderRobotConnection = (connection) => {
     : `<li class="empty">No recovered events</li>`;
 };
 
-const extractElevatorFsmState = (status, feedback) => {
+const extractElevatorFsmState = (display, status, feedback) => {
   const candidates = [
+    display?.state,
+    display?.event_state,
     feedback?.current_state,
     feedback?.detail,
     status?.state,
@@ -796,8 +852,8 @@ const extractElevatorFsmState = (status, feedback) => {
   return "";
 };
 
-const renderElevatorFsm = (status, feedback) => {
-  const currentState = extractElevatorFsmState(status, feedback);
+const renderElevatorFsm = (display, status, feedback) => {
+  const currentState = extractElevatorFsmState(display, status, feedback);
   const currentIndex = elevatorFsmStates.indexOf(currentState);
   $("elevatorFsmState").textContent = currentState || "-";
 
@@ -904,7 +960,12 @@ const renderJoints = (joints) => {
 
 const drivingChipClass = (stateName) => {
   if (stateName === "NAVIGATING") return "success";
-  if (stateName === "MAP_SWITCHING" || stateName === "WAITING_ELEVATOR") return "warning";
+  if (
+    stateName === "MAP_SWITCHING" ||
+    stateName === "WAITING_MAP" ||
+    stateName === "SWITCHING" ||
+    stateName === "WAITING_ELEVATOR"
+  ) return "warning";
   if (stateName === "FAILED" || stateName === "ERROR") return "danger";
   return "neutral";
 };
@@ -1314,18 +1375,28 @@ const renderDriving = (driving = {}) => {
   const pose = driving.pose || {};
   const odom = driving.odom || {};
   const navState = driving.state || {};
+  const mapSwitch = driving.map_switch || {};
   const globalPath = driving.global_path || {};
   const localPath = driving.local_path || {};
+  const activeMapSwitch = ["SWITCHING", "WAITING_MAP"].includes(mapSwitch.state);
 
-  const label = navState.label || navState.state || "Waiting";
+  const label = activeMapSwitch
+    ? mapSwitch.message || `${mapSwitch.target_floor || "-"}F map switching`
+    : navState.label || navState.state || "Waiting";
   $("drivingStateChip").textContent = label;
-  $("drivingStateChip").className = `status-chip ${drivingChipClass(navState.state)}`;
+  $("drivingStateChip").className =
+    `status-chip ${drivingChipClass(activeMapSwitch ? mapSwitch.state : navState.state)}`;
+
+  const mapSwitchText = mapSwitch.state && mapSwitch.state !== "IDLE"
+    ? ` | ${mapSwitch.message || mapSwitch.state}`
+    : "";
 
   if (map.available) {
-    $("drivingMapMeta").textContent = `${map.topic || "/map"} | rev ${map.revision} | age ${formatAge(map.age_ms)}`;
+    $("drivingMapMeta").textContent =
+      `${map.topic || "/map"} | rev ${map.revision} | age ${formatAge(map.age_ms)}${mapSwitchText}`;
     $("drivingMapInfo").textContent = `${map.width}x${map.height}, res ${formatNumber(map.resolution, 3)} m/px, origin (${formatNumber(map.origin?.x, 2)}, ${formatNumber(map.origin?.y, 2)})`;
   } else {
-    $("drivingMapMeta").textContent = `Waiting for ${map.topic || "/map"}`;
+    $("drivingMapMeta").textContent = `Waiting for ${map.topic || "/map"}${mapSwitchText}`;
     $("drivingMapInfo").textContent = "No map";
   }
 
@@ -1338,7 +1409,11 @@ const renderDriving = (driving = {}) => {
     : `Waiting for ${odom.topic || "/odom"}`;
 
   $("drivingPathInfo").textContent = `global ${globalPath.available ? `${globalPath.count} pts` : "-"}, local ${localPath.available ? `${localPath.count} pts` : "-"}`;
-  $("drivingNavState").textContent = `${navState.state || "IDLE"}${navState.mission_state ? ` | mission ${navState.mission_state}` : ""}${navState.detail ? ` | ${navState.detail}` : ""}`;
+  const mapSwitchDetail = mapSwitch.state && mapSwitch.state !== "IDLE"
+    ? ` | map ${mapSwitch.state}${mapSwitch.target_floor ? ` ${mapSwitch.target_floor}F` : ""}`
+    : "";
+  $("drivingNavState").textContent =
+    `${navState.state || "IDLE"}${navState.mission_state ? ` | mission ${navState.mission_state}` : ""}${mapSwitchDetail}${navState.detail ? ` | ${navState.detail}` : ""}`;
 
   loadDrivingMapIfNeeded(map).then(() => drawDrivingMap(driving));
   drawDrivingMap(driving);
@@ -1450,7 +1525,8 @@ const poll = async () => {
   try {
     const previousSeq = Number(state.lastSeq || 0);
     const shouldTrySync = state.pendingSync && previousSeq > 0;
-    const snapshot = await api("/api/snapshot");
+    const snapshot = await api("/api/snapshot", { timeoutMs: SNAPSHOT_TIMEOUT_MS });
+    state.snapshotFailures = 0;
     renderSnapshot(snapshot);
     const latestSeq = latestSeqFromSnapshot(snapshot);
 
@@ -1466,14 +1542,26 @@ const poll = async () => {
         state.syncStatus = "LIVE";
       }
       renderSyncStatus();
+    } else if (!state.pendingSync && state.syncStatus !== "LIVE") {
+      state.syncStatus = "LIVE";
+      renderSyncStatus();
     }
   } catch (error) {
+    state.snapshotFailures += 1;
     state.pendingSync = state.lastSeq !== null;
-    state.syncStatus = "OFFLINE";
-    setConnection(
-      `OFFLINE | browser cannot reach central Flask snapshot: ${error.message}`,
-      "offline",
-    );
+    if (state.snapshotFailures >= OFFLINE_FAILURE_THRESHOLD) {
+      state.syncStatus = "OFFLINE";
+      setConnection(
+        `OFFLINE | browser cannot reach central Flask snapshot: ${error.message}`,
+        "offline",
+      );
+    } else {
+      state.syncStatus = "FAILED";
+      setConnection(
+        `LINK CHECK ${state.snapshotFailures}/${OFFLINE_FAILURE_THRESHOLD} | ${error.message}`,
+        "recovered",
+      );
+    }
     renderSyncStatus();
   } finally {
     state.polling = false;
@@ -1567,6 +1655,7 @@ const startMission = async (event) => {
     delivery_location: $("deliveryLocation").value,
     target_floor: Number($("targetFloor").value),
     object_label: $("objectLabel").value.trim(),
+    arm_task_name: $("armTaskName").value,
   };
 
   try {

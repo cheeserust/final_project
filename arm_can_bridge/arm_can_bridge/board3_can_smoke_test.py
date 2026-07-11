@@ -17,12 +17,15 @@ from .can_protocol import (
     BoardState,
     BoardStatus,
     CAN_ID_BOARD3_POSITION_FEEDBACK,
+    CAN_ID_BOARD3_SERVO_COMMAND,
     CAN_ID_BOARD3_STATUS,
     CanFrame,
     error_name_for_board,
+    FLAG_EXECUTE,
     pack_board3_servo_command,
     pack_clear_error,
     pack_enable,
+    pack_gripper_home,
     unpack_board3_position_feedback,
     unpack_status,
 )
@@ -40,6 +43,7 @@ class Board3StatusMonitor:
         self._event = threading.Event()
         self._lock = threading.Lock()
         self._latest: Optional[BoardStatus] = None
+        self._status_count = 0
         self._feedback = Board3PositionFeedbackAssembler()
         self._latest_positions_rad: Optional[tuple[float, ...]] = None
 
@@ -70,6 +74,7 @@ class Board3StatusMonitor:
 
         with self._lock:
             self._latest = status
+            self._status_count += 1
             self._event.set()
 
         if self._verbose:
@@ -79,6 +84,11 @@ class Board3StatusMonitor:
         """Return the latest status snapshot."""
         with self._lock:
             return self._latest
+
+    def status_count(self) -> int:
+        """Return the number of Board3 status frames observed."""
+        with self._lock:
+            return self._status_count
 
     def latest_positions_rad(self) -> Optional[tuple[float, ...]]:
         """Return the latest complete Board3 position feedback snapshot."""
@@ -155,6 +165,7 @@ def board3_state_name(value: int) -> str:
         4: 'ERROR',
         5: 'ESTOP',
         6: 'DISABLED',
+        7: 'CONTACT_HOLD',
     }
     return names.get(int(value), f'UNKNOWN({value})')
 
@@ -167,7 +178,7 @@ def error_name(value: int) -> str:
 def is_board3_ready(status: BoardStatus) -> bool:
     """Return whether Board3 is ready to accept gripper command frames."""
     return (
-        status.state == BoardState.IDLE
+        status.state in (BoardState.IDLE, BoardState.CONTACT_HOLD)
         and status.error_code == BoardError.NONE
         and status.homing_done_bits == 1
         and status.limit_status_bits == 0
@@ -190,22 +201,61 @@ def send_frame(transport: SocketCanTransport, frame: CanFrame) -> None:
     print(f'TX {frame.can_id:03X}#{frame.data.hex().upper()}')
 
 
+def pack_board3_servo_command_raw_motor_id(
+    *,
+    raw_motor_id: int,
+    target_pos: int,
+    target_load: int,
+    duration_ticks: int,
+) -> CanFrame:
+    """Pack Board3 smoke-test frame with an arbitrary 4-bit motor id."""
+    if not 0 <= int(raw_motor_id) <= 0x0F:
+        raise ValueError('raw_motor_id must fit 0..15')
+    if not -(2**31) <= int(target_pos) <= (2**31 - 1):
+        raise OverflowError('target_pos must fit signed int32')
+    if not 0 <= int(target_load) <= 0xFFFF:
+        raise ValueError('target_load must fit uint16')
+    if not 0 <= int(duration_ticks) <= 0xFF:
+        raise ValueError('duration_ticks must fit uint8')
+
+    data = (
+        bytes([FLAG_EXECUTE | (int(raw_motor_id) & 0x0F)])
+        + int(target_pos).to_bytes(4, byteorder='little', signed=True)
+        + int(target_load).to_bytes(2, byteorder='little', signed=False)
+        + bytes([int(duration_ticks)])
+    )
+    return CanFrame(CAN_ID_BOARD3_SERVO_COMMAND, data)
+
+
 def send_gripper_set(
     transport: SocketCanTransport,
     *,
     target_001deg: int,
     duration_ticks: int,
     target_load: int,
+    inter_frame_delay_s: float = 0.0,
+    command_motor_id_base: int = 0,
 ) -> None:
     """Send one complete nine-servo Board3 command set."""
     for motor_id in range(BOARD3_SERVO_COUNT):
-        frame = pack_board3_servo_command(
-            motor_id=motor_id,
-            target_pos=target_001deg,
-            target_load=target_load,
-            duration_ticks=duration_ticks,
-        )
+        raw_motor_id = int(command_motor_id_base) + motor_id
+        if command_motor_id_base == 0:
+            frame = pack_board3_servo_command(
+                motor_id=motor_id,
+                target_pos=target_001deg,
+                target_load=target_load,
+                duration_ticks=duration_ticks,
+            )
+        else:
+            frame = pack_board3_servo_command_raw_motor_id(
+                raw_motor_id=raw_motor_id,
+                target_pos=target_001deg,
+                target_load=target_load,
+                duration_ticks=duration_ticks,
+            )
         send_frame(transport, frame)
+        if inter_frame_delay_s > 0.0 and motor_id < BOARD3_SERVO_COUNT - 1:
+            time.sleep(inter_frame_delay_s)
 
 
 def parse_args(argv: Optional[list[str]]) -> argparse.Namespace:
@@ -243,6 +293,25 @@ def parse_args(argv: Optional[list[str]]) -> argparse.Namespace:
         help=argparse.SUPPRESS,
     )
     parser.add_argument(
+        '--inter-frame-delay-ms',
+        type=float,
+        default=0.0,
+        help=(
+            'Delay between the 9 Board3 servo frames in milliseconds, '
+            'default: 0.0'
+        ),
+    )
+    parser.add_argument(
+        '--command-motor-id-base',
+        type=int,
+        choices=(0, 1),
+        default=0,
+        help=(
+            'First Board3 command motor id to send. Use 0 for 0..8 '
+            'protocol, or 1 to test firmware expecting 1..9. Default: 0'
+        ),
+    )
+    parser.add_argument(
         '--timeout',
         type=float,
         default=5.0,
@@ -259,6 +328,20 @@ def parse_args(argv: Optional[list[str]]) -> argparse.Namespace:
         help='Send Board3 clear-error before enable',
     )
     parser.add_argument(
+        '--home-before-command',
+        action='store_true',
+        help='Send Board3 gripper home posture before the servo command set',
+    )
+    parser.add_argument(
+        '--home-duration-ticks',
+        type=int,
+        default=200,
+        help=(
+            'Board3 home posture duration in 5 ms ticks when '
+            '--home-before-command is used, default: 200 = 1 s'
+        ),
+    )
+    parser.add_argument(
         '--skip-enable',
         action='store_true',
         help='Do not send enable before the command set',
@@ -270,6 +353,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     """Run the Board3-only CAN smoke test."""
     args = parse_args(argv)
     target_001deg = int(round(args.degrees * 100.0))
+    inter_frame_delay_s = float(args.inter_frame_delay_ms) / 1000.0
+
+    if inter_frame_delay_s < 0.0:
+        print('--inter-frame-delay-ms must be greater than or equal to 0')
+        return 1
+    if not 0 <= int(args.home_duration_ticks) <= 255:
+        print('--home-duration-ticks must be in 0..255')
+        return 1
 
     monitor = Board3StatusMonitor(verbose=True)
     transport = SocketCanTransport(
@@ -309,9 +400,27 @@ def main(argv: Optional[list[str]] = None) -> int:
                 transport,
                 pack_enable(True, board_id=BOARD_ID_BOARD3),
             )
+            time.sleep(0.05)
+
+        ready_status_min_count = 0
+        if args.home_before_command:
+            ready_status_min_count = monitor.status_count()
+            send_frame(
+                transport,
+                pack_gripper_home(
+                    duration_ticks=int(args.home_duration_ticks),
+                ),
+            )
+            home_wait_s = int(args.home_duration_ticks) * 0.005
+            if int(args.home_duration_ticks) == 0:
+                home_wait_s = 0.5
+            time.sleep(home_wait_s + 0.05)
 
         ready_status = monitor.wait_until(
-            is_board3_ready,
+            lambda status: (
+                monitor.status_count() > ready_status_min_count
+                and is_board3_ready(status)
+            ),
             timeout_s=args.timeout,
         )
 
@@ -329,18 +438,27 @@ def main(argv: Optional[list[str]] = None) -> int:
             'Sending 9 servo frames: '
             f'target={target_001deg} x0.01deg, '
             f'target_load={int(args.target_load)}, '
-            f'duration={args.duration_ticks} ticks'
+            f'duration={args.duration_ticks} ticks, '
+            f'inter_frame_delay={args.inter_frame_delay_ms:g} ms, '
+            f'command_motor_ids={args.command_motor_id_base}..'
+            f'{args.command_motor_id_base + BOARD3_SERVO_COUNT - 1}'
         )
 
+        status_count_before_command = monitor.status_count()
         send_gripper_set(
             transport,
             target_001deg=target_001deg,
             duration_ticks=int(args.duration_ticks),
             target_load=int(args.target_load),
+            inter_frame_delay_s=inter_frame_delay_s,
+            command_motor_id_base=int(args.command_motor_id_base),
         )
 
         complete_status = monitor.wait_until(
-            is_board3_command_complete,
+            lambda status: (
+                monitor.status_count() > status_count_before_command
+                and is_board3_command_complete(status)
+            ),
             timeout_s=args.timeout,
         )
 

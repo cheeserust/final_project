@@ -16,6 +16,7 @@ def main():
         '--delivery-location', 'object_place',
         '--target-floor', '5',
         '--object', 'box',
+        '--arm-task-name', 'pick_object_2',
     ]
 
     return send_mission_main(demo_args)

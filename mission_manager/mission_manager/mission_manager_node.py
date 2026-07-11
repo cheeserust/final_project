@@ -158,6 +158,13 @@ class MissionManager(Node):
 
     def goal_callback(self, goal_request):
         """동시에 두 미션이 실행되지 않도록 새 Goal 수락 여부를 판단한다."""
+        if not goal_request.arm_task_name.strip():
+            self.get_logger().warning(
+                f'Rejecting mission "{goal_request.mission_id}": '
+                'arm_task_name is required'
+            )
+            return GoalResponse.REJECT
+
         if self.mission_active:
             self.get_logger().warning(
                 f'Rejecting mission "{goal_request.mission_id}": '
@@ -173,7 +180,8 @@ class MissionManager(Node):
             f'pickup={goal_request.pickup_location}, '
             f'delivery={goal_request.delivery_location}, '
             f'floor={goal_request.target_floor}, '
-            f'object={goal_request.object_label}'
+            f'object={goal_request.object_label}, '
+            f'arm_task={goal_request.arm_task_name}'
         )
 
         return GoalResponse.ACCEPT
@@ -331,6 +339,7 @@ class MissionManager(Node):
             delivery_location=request.delivery_location,
             target_floor=request.target_floor,
             object_label=request.object_label,
+            arm_task_name=request.arm_task_name,
         )
 
         result = ExecuteMission.Result()
@@ -503,16 +512,25 @@ class MissionManager(Node):
 
                     if last_result.success:
                         step_succeeded = True
+                        success_progress = (step_index + 1) / total_steps
 
                         self.get_logger().info(
                             f'Step succeeded: {step.state}, '
                             f'message="{last_result.message}"'
                         )
+                        self.publish_status(
+                            mission_id=context.mission_id,
+                            state=step.state,
+                            active_task=step.server,
+                            progress=success_progress,
+                            error=False,
+                            message=last_result.message,
+                        )
                         self.publish_event(
                             level='success',
                             state=step.state,
                             active_task=step.server,
-                            progress=(step_index + 1) / total_steps,
+                            progress=success_progress,
                             message=last_result.message,
                             mission_id=context.mission_id,
                         )

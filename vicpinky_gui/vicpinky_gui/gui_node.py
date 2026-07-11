@@ -21,13 +21,13 @@ from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from control_msgs.action import FollowJointTrajectory
 from flask import Flask, jsonify, request, send_from_directory
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from geometry_msgs.msg import PoseWithCovarianceStamped
-from nav_msgs.msg import OccupancyGrid, Odometry, Path as NavPath
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
@@ -68,6 +68,62 @@ ELEVATOR_WAIT_FLOOR_STATES = {
     'WAIT_4F': 4,
 }
 
+ELEVATOR_FSM_STATES = (
+    'GO_TO_ELEVATOR_FRONT',
+    'ALIGN_ELEVATOR_TAG',
+    'PRESS_ELEVATOR_CALL_BUTTON',
+    'WAIT_ELEVATOR_OPEN',
+    'ENTER_ELEVATOR',
+    'PRESS_5F_BUTTON',
+    'WAIT_5F',
+    'EXIT_ELEVATOR',
+    'SWITCH_5F_MAP',
+    'GO_TO_TARGET_PLACE',
+    'ARM_TASK_AT_TARGET',
+    'RETURN_TO_ELEVATOR',
+    'ALIGN_ELEVATOR_TAG_RETURN',
+    'PRESS_ELEVATOR_CALL_BUTTON_RETURN',
+    'WAIT_ELEVATOR_OPEN_RETURN',
+    'ENTER_ELEVATOR_RETURN',
+    'PRESS_4F_BUTTON',
+    'WAIT_4F',
+    'EXIT_ELEVATOR_RETURN',
+    'SWITCH_4F_MAP',
+    'RETURN_HOME',
+    'DONE',
+)
+
+ELEVATOR_FSM_INDEX = {
+    state: index for index, state in enumerate(ELEVATOR_FSM_STATES)
+}
+
+MAP_SWITCH_STATES = {
+    'SWITCH_5F_MAP': 5,
+    'SWITCH_4F_MAP': 4,
+}
+
+SUCCESS_EVENT_NEXT_STATE_BY_STATE = {
+    'WAIT_ELEVATOR_OPEN': 'ENTER_ELEVATOR',
+    'WAIT_ELEVATOR_OPEN_RETURN': 'ENTER_ELEVATOR_RETURN',
+    'SWITCH_5F_MAP': 'GO_TO_TARGET_PLACE',
+    'SWITCH_4F_MAP': 'RETURN_HOME',
+}
+
+SUCCESS_EVENT_NEXT_STATE_BY_TYPE_AND_STATE = {
+    ('BUTTON_PRESS_SUCCESS', 'PRESS_5F_BUTTON'): 'WAIT_5F',
+    ('BUTTON_PRESS_SUCCESS', 'PRESS_4F_BUTTON'): 'WAIT_4F',
+    ('ELEVATOR_CALL_BUTTON_DONE', 'PRESS_ELEVATOR_CALL_BUTTON'):
+        'WAIT_ELEVATOR_OPEN',
+    ('ELEVATOR_CALL_BUTTON_DONE', 'PRESS_ELEVATOR_CALL_BUTTON_RETURN'):
+        'WAIT_ELEVATOR_OPEN_RETURN',
+    ('ELEVATOR_ENTERED', 'ENTER_ELEVATOR'): 'PRESS_5F_BUTTON',
+    ('ELEVATOR_ENTERED', 'ENTER_ELEVATOR_RETURN'): 'PRESS_4F_BUTTON',
+    ('TARGET_FLOOR_ARRIVED', 'WAIT_5F'): 'EXIT_ELEVATOR',
+    ('TARGET_FLOOR_ARRIVED', 'WAIT_4F'): 'EXIT_ELEVATOR_RETURN',
+    ('ELEVATOR_EXIT_DONE', 'EXIT_ELEVATOR'): 'SWITCH_5F_MAP',
+    ('ELEVATOR_EXIT_DONE', 'EXIT_ELEVATOR_RETURN'): 'SWITCH_4F_MAP',
+}
+
 ARM_COMMANDS = {
     'enable': '/arm_board/enable',
     'disable': '/arm_board/disable',
@@ -76,6 +132,13 @@ ARM_COMMANDS = {
     'status': '/arm_board/status',
     'estop': '/arm_board/estop',
 }
+
+ARM_TASK_OPTIONS = [
+    {'name': 'pick_object_1', 'label': 'Pick object 1'},
+    {'name': 'pick_object_2', 'label': 'Pick object 2'},
+    {'name': 'place_to_robot', 'label': 'Place to robot'},
+    {'name': 'place_to_table', 'label': 'Place to table'},
+]
 
 ARM_MANUAL_JOINTS = [
     {
@@ -90,25 +153,25 @@ ARM_MANUAL_JOINTS = [
         'key': 'axis_1',
         'label': 'Axis 1',
         'joint_name': 'arm_joint_1',
-        'min_deg': -86.0,
+        'min_deg': -85.0,
         'max_deg': 90.0,
-        'default_deg': -86.0,
+        'default_deg': -85.0,
     },
     {
         'key': 'axis_2',
         'label': 'Axis 2',
         'joint_name': 'arm_joint_2',
-        'min_deg': -79.1,
+        'min_deg': -78.1,
         'max_deg': 80.0,
-        'default_deg': -79.1,
+        'default_deg': -78.1,
     },
     {
         'key': 'axis_3',
         'label': 'Axis 3',
         'joint_name': 'arm_joint_3',
-        'min_deg': -90.0,
+        'min_deg': -91.5,
         'max_deg': 90.0,
-        'default_deg': -90.0,
+        'default_deg': -91.5,
     },
     {
         'key': 'axis_4',
@@ -118,18 +181,6 @@ ARM_MANUAL_JOINTS = [
         'max_deg': 90.0,
         'default_deg': -90.0,
     },
-]
-
-BOARD1_MANUAL_JOINTS = [
-    joint
-    for joint in ARM_MANUAL_JOINTS
-    if joint['joint_name'] != 'arm_joint_4'
-]
-
-BOARD2_MANUAL_JOINTS = [
-    joint
-    for joint in ARM_MANUAL_JOINTS
-    if joint['joint_name'] == 'arm_joint_4'
 ]
 
 GRIPPER_MANUAL_JOINTS = [
@@ -468,6 +519,7 @@ class VicPinkyGuiNode(Node):
     def _declare_parameters(self) -> None:
         mission_share = self._package_share_or_empty('mission_manager')
         driving_share = self._package_share_or_empty('vicpinky_task_servers')
+        bridge_share = self._package_share_or_empty('arm_can_bridge')
         default_locations = os.path.join(
             mission_share,
             'config',
@@ -483,6 +535,11 @@ class VicPinkyGuiNode(Node):
             'config',
             'nav_points.yaml',
         ) if driving_share else ''
+        default_bridge_config = os.path.join(
+            bridge_share,
+            'config',
+            'arm_can_bridge.yaml',
+        ) if bridge_share else ''
 
         self.declare_parameter('host', '0.0.0.0')
         self.declare_parameter('port', 8080)
@@ -491,13 +548,17 @@ class VicPinkyGuiNode(Node):
         self.declare_parameter('request_timeout_sec', 5.0)
         self.declare_parameter('status_log_limit', 80)
         self.declare_parameter('connection_timeout_sec', 5.0)
-        self.declare_parameter('recovered_hold_sec', 12.0)
+        self.declare_parameter('recovered_hold_sec', 5.0)
         self.declare_parameter('heartbeat_topic', '/robot/heartbeat')
         self.declare_parameter('mission_event_topic', '/mission/event_log')
         self.declare_parameter('event_log_db_path', '')
         self.declare_parameter('locations_file', default_locations)
         self.declare_parameter('mission_flow_file', default_flow)
         self.declare_parameter('nav_points_file', default_nav_points)
+        self.declare_parameter(
+            'arm_bridge_config_file',
+            default_bridge_config,
+        )
         self.declare_parameter('manual_arm_mode', 'full')
         self.declare_parameter('enable_manual_arm', True)
         self.declare_parameter('enable_manual_gripper', True)
@@ -513,17 +574,26 @@ class VicPinkyGuiNode(Node):
         if bool(self.get_parameter('enable_manual_arm').value):
             mode = str(self.get_parameter('manual_arm_mode').value).lower()
             arm_config = deepcopy(MANUAL_CONTROLLERS['arm'])
+            self._apply_bridge_joint_limits(arm_config, 'arm')
 
             if mode in ('full', 'all'):
                 arm_config['mode'] = 'full'
             elif mode in ('board1', 'board1_only', 'board1-only'):
                 arm_config['label'] = 'Board1 Arm'
                 arm_config['mode'] = 'board1'
-                arm_config['joints'] = deepcopy(BOARD1_MANUAL_JOINTS)
+                arm_config['joints'] = [
+                    joint
+                    for joint in arm_config['joints']
+                    if joint['joint_name'] != 'arm_joint_4'
+                ]
             elif mode in ('board2', 'board2_only', 'board2-only'):
                 arm_config['label'] = 'Board2 Joint4'
                 arm_config['mode'] = 'board2'
-                arm_config['joints'] = deepcopy(BOARD2_MANUAL_JOINTS)
+                arm_config['joints'] = [
+                    joint
+                    for joint in arm_config['joints']
+                    if joint['joint_name'] == 'arm_joint_4'
+                ]
             else:
                 raise ValueError(
                     'manual_arm_mode must be one of: full, board1, board2'
@@ -532,9 +602,58 @@ class VicPinkyGuiNode(Node):
             controllers['arm'] = arm_config
 
         if bool(self.get_parameter('enable_manual_gripper').value):
-            controllers['gripper'] = deepcopy(MANUAL_CONTROLLERS['gripper'])
+            gripper_config = deepcopy(MANUAL_CONTROLLERS['gripper'])
+            self._apply_bridge_joint_limits(gripper_config, 'gripper')
+            controllers['gripper'] = gripper_config
 
         return controllers
+
+    def _apply_bridge_joint_limits(
+        self,
+        controller: dict[str, Any],
+        prefix: str,
+    ) -> None:
+        config_file = str(
+            self.get_parameter('arm_bridge_config_file').value
+        )
+        if not config_file:
+            return
+        try:
+            data = self._read_yaml(config_file)
+            params = data['arm_can_bridge']['ros__parameters']
+            names = [str(value) for value in params[f'{prefix}_joint_names']]
+            minimums = params[f'{prefix}_min_positions_rad']
+            maximums = params[f'{prefix}_max_positions_rad']
+            homes = params[f'{prefix}_home_positions_rad']
+            if not (
+                len(names) == len(minimums)
+                == len(maximums) == len(homes)
+            ):
+                raise ValueError(f'{prefix} bridge arrays have unequal lengths')
+            values_by_name = {
+                name: (minimums[index], maximums[index], homes[index])
+                for index, name in enumerate(names)
+            }
+            for joint in controller['joints']:
+                values = values_by_name.get(str(joint['joint_name']))
+                if values is None:
+                    raise ValueError(
+                        f'bridge config is missing {joint["joint_name"]}'
+                    )
+                minimum_deg, maximum_deg, home_deg = (
+                    math.degrees(float(value)) for value in values
+                )
+                joint['min_deg'] = minimum_deg
+                joint['max_deg'] = maximum_deg
+                joint['default_deg'] = max(
+                    minimum_deg,
+                    min(home_deg, maximum_deg),
+                )
+        except Exception as exc:
+            self.get_logger().warning(
+                f'Failed to apply {prefix} GUI limits from '
+                f'{config_file}: {exc}'
+            )
 
     def _start_http_server(self) -> None:
         static_dir = self._static_dir()
@@ -899,7 +1018,9 @@ class VicPinkyGuiNode(Node):
                 'delivery_location': 'object_place',
                 'target_floor': 5,
                 'object_label': 'box',
+                'arm_task_name': 'pick_object_2',
             },
+            'arm_tasks': deepcopy(ARM_TASK_OPTIONS),
             'default_nav': {
                 'location_name': 'home',
                 'location_id': '4:home',
@@ -1468,6 +1589,289 @@ class VicPinkyGuiNode(Node):
     def _stamp_to_float(stamp: Any) -> float:
         return float(stamp.sec) + float(stamp.nanosec) / 1_000_000_000.0
 
+    @staticmethod
+    def _safe_float(value: Any, default: float | None = None) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _extract_fsm_state_from_text(cls, text: Any) -> str:
+        candidate = str(text or '').strip()
+        if not candidate:
+            return ''
+        if candidate in ELEVATOR_FSM_INDEX:
+            return candidate
+        for state in ELEVATOR_FSM_STATES:
+            if state in candidate:
+                return state
+        return ''
+
+    @classmethod
+    def _extract_fsm_state_from_payload(
+        cls,
+        payload: dict[str, Any] | None,
+    ) -> str:
+        if not isinstance(payload, dict):
+            return ''
+        for key in (
+            'display_state',
+            'current_state',
+            'state',
+            'event_type',
+            'message',
+            'detail',
+            'active_task',
+        ):
+            state = cls._extract_fsm_state_from_text(payload.get(key))
+            if state:
+                return state
+        return ''
+
+    @classmethod
+    def _mission_event_display_state(
+        cls,
+        event: dict[str, Any],
+    ) -> tuple[str, str]:
+        state = cls._extract_fsm_state_from_payload(event)
+        event_type = str(event.get('event_type') or '').strip()
+        level = str(event.get('level') or '').strip().lower()
+
+        if level == 'success':
+            next_state = SUCCESS_EVENT_NEXT_STATE_BY_TYPE_AND_STATE.get(
+                (event_type, state),
+            )
+            if next_state:
+                return next_state, 'mission_event_success'
+
+            next_state = SUCCESS_EVENT_NEXT_STATE_BY_STATE.get(state)
+            if next_state:
+                return next_state, 'mission_event_success'
+
+        if event_type in ELEVATOR_FSM_INDEX:
+            return event_type, 'mission_event'
+        if state:
+            return state, 'mission_event'
+
+        raw_state = str(event.get('state') or '').strip()
+        return raw_state, 'mission_event'
+
+    @classmethod
+    def _latest_relevant_mission_event(
+        cls,
+        mission_events: list[dict[str, Any]],
+        mission_id: str,
+    ) -> dict[str, Any] | None:
+        for event in reversed(mission_events):
+            if not isinstance(event, dict):
+                continue
+            event_mission_id = str(event.get('mission_id') or '').strip()
+            if (
+                mission_id
+                and event_mission_id
+                and event_mission_id != mission_id
+            ):
+                continue
+            return event
+        return None
+
+    @classmethod
+    def _mission_display_snapshot(
+        cls,
+        *,
+        mission_status: dict[str, Any] | None,
+        mission_feedback: dict[str, Any] | None,
+        mission_goal: dict[str, Any] | None,
+        mission_result: dict[str, Any] | None,
+        mission_active: bool,
+        mission_events: list[dict[str, Any]],
+        status_age_ms: float | None,
+    ) -> dict[str, Any]:
+        mission_id = str(
+            (mission_status or {}).get('mission_id') or ''
+        ).strip()
+        latest_event = cls._latest_relevant_mission_event(
+            mission_events,
+            mission_id,
+        )
+        event_state = ''
+        event_source = ''
+        if latest_event is not None:
+            event_state, event_source = cls._mission_event_display_state(
+                latest_event,
+            )
+
+        status_state = cls._extract_fsm_state_from_payload(mission_status)
+        if not status_state:
+            status_state = str(
+                (mission_status or {}).get('state') or ''
+            ).strip()
+
+        feedback_state = cls._extract_fsm_state_from_payload(mission_feedback)
+        goal_state = str((mission_goal or {}).get('state') or '').strip()
+        result_state = str((mission_result or {}).get('status') or '').strip()
+
+        selected_state = (
+            status_state
+            or feedback_state
+            or goal_state
+            or result_state
+            or ('ACTIVE' if mission_active else 'IDLE')
+        )
+        selected_source = 'mission_status' if status_state else 'local'
+
+        status_index = ELEVATOR_FSM_INDEX.get(status_state, -1)
+        event_index = ELEVATOR_FSM_INDEX.get(event_state, -1)
+        if event_state:
+            if event_index >= 0 and event_index >= status_index:
+                selected_state = event_state
+                selected_source = event_source
+            elif status_index < 0 and not status_state:
+                selected_state = event_state
+                selected_source = event_source
+
+        active_task = (
+            (mission_status or {}).get('active_task')
+            or (mission_feedback or {}).get('current_task')
+            or (latest_event or {}).get('active_task')
+            or ''
+        )
+        progress = cls._safe_float(
+            (mission_status or {}).get('progress'),
+            None,
+        )
+        if progress is None:
+            progress = cls._safe_float(
+                (mission_feedback or {}).get('progress'),
+                1.0 if (mission_result or {}).get('success') else 0.0,
+            )
+
+        message = (
+            (latest_event or {}).get('message')
+            if selected_source.startswith('mission_event')
+            else None
+        )
+        if not message:
+            message = (
+                (mission_status or {}).get('message')
+                or (mission_feedback or {}).get('detail')
+                or goal_state
+                or (mission_result or {}).get('message')
+                or ''
+            )
+
+        return {
+            'state': selected_state,
+            'source': selected_source,
+            'raw_status_state': str(
+                (mission_status or {}).get('state') or '',
+            ),
+            'event_state': event_state,
+            'event_type': (
+                str((latest_event or {}).get('event_type') or '')
+                if latest_event is not None
+                else ''
+            ),
+            'event_level': (
+                str((latest_event or {}).get('level') or '')
+                if latest_event is not None
+                else ''
+            ),
+            'event_seq': (
+                (latest_event or {}).get('seq')
+                if latest_event is not None
+                else None
+            ),
+            'event_time': (
+                (latest_event or {}).get('time')
+                if latest_event is not None
+                else None
+            ),
+            'active_task': active_task,
+            'progress': progress,
+            'message': str(message or ''),
+            'status_age_ms': status_age_ms,
+        }
+
+    def _map_switch_snapshot_locked(
+        self,
+        now: float,
+        mission_events: list[dict[str, Any]],
+        mission_id: str = '',
+    ) -> dict[str, Any]:
+        request_event = None
+        request_state = ''
+        for event in reversed(mission_events):
+            if not isinstance(event, dict):
+                continue
+            event_mission_id = str(event.get('mission_id') or '').strip()
+            if (
+                mission_id
+                and event_mission_id
+                and event_mission_id != mission_id
+            ):
+                continue
+            event_state = self._extract_fsm_state_from_payload(event)
+            if event_state in MAP_SWITCH_STATES:
+                request_event = event
+                request_state = event_state
+                break
+
+        if request_event is None:
+            return {
+                'state': 'IDLE',
+                'target_floor': None,
+                'requested_state': '',
+                'requested_at': None,
+                'applied_at': None,
+                'elapsed_s': None,
+                'current_map_revision': self._driving_map_revision,
+                'current_map_age_ms': self._age_ms(
+                    self._driving_map_seen_at,
+                    now,
+                ),
+                'message': 'No map switch requested',
+            }
+
+        requested_stamp = self._safe_float(request_event.get('stamp'), None)
+        if requested_stamp is None:
+            requested_stamp = now
+
+        elapsed_s = max(0.0, now - requested_stamp)
+        applied = (
+            self._driving_map_seen_at is not None
+            and self._driving_map_seen_at >= requested_stamp
+        )
+        target_floor = MAP_SWITCH_STATES[request_state]
+
+        if applied:
+            state = 'APPLIED'
+            message = f'{target_floor}F map applied'
+        elif elapsed_s >= 5.0:
+            state = 'WAITING_MAP'
+            message = f'Waiting for {target_floor}F map data'
+        else:
+            state = 'SWITCHING'
+            message = f'Switching to {target_floor}F map'
+
+        return {
+            'state': state,
+            'target_floor': target_floor,
+            'requested_state': request_state,
+            'requested_at': self._now_iso(requested_stamp),
+            'applied_at': (
+                self._now_iso(self._driving_map_seen_at)
+                if applied and self._driving_map_seen_at is not None
+                else None
+            ),
+            'elapsed_s': elapsed_s,
+            'current_map_revision': self._driving_map_revision,
+            'current_map_age_ms': self._age_ms(self._driving_map_seen_at, now),
+            'event_seq': request_event.get('seq'),
+            'message': message,
+        }
+
     def _driving_snapshot_locked(self, now: float) -> dict[str, Any]:
         if self._driving_map is not None:
             map_snapshot = {
@@ -1609,17 +2013,37 @@ class VicPinkyGuiNode(Node):
                 name: self._manual_goal_handles.get(name) is not None
                 for name in self._manual_controllers
             }
-            mission_status_age = self._age_ms(self._mission_status_seen_at, now)
+            mission_status_age = self._age_ms(
+                self._mission_status_seen_at,
+                now,
+            )
             arm_status_age = self._age_ms(self._latest_arm_status_seen_at, now)
             joint_state_age = self._age_ms(self._joint_state_seen_at, now)
             latest_log_seq = self._latest_event_seq_locked()
             driving = self._driving_snapshot_locked(now)
+            driving['map_switch'] = self._map_switch_snapshot_locked(
+                now,
+                mission_events,
+                str((mission_status or {}).get('mission_id') or '').strip(),
+            )
+
+        mission_display = self._mission_display_snapshot(
+            mission_status=mission_status,
+            mission_feedback=mission_feedback,
+            mission_goal=mission_goal,
+            mission_result=mission_result,
+            mission_active=mission_active,
+            mission_events=mission_events,
+            status_age_ms=mission_status_age,
+        )
 
         mission_nav_state = self._mission_driving_state(
             mission_status,
             mission_feedback,
             nav_feedback,
             nav_result,
+            mission_display,
+            driving.get('map_switch'),
         )
         driving['state'] = mission_nav_state
 
@@ -1656,6 +2080,7 @@ class VicPinkyGuiNode(Node):
                 'result': mission_result,
                 'active': mission_active,
                 'action_ready': self._mission_action_ready(),
+                'display': mission_display,
             },
             'elevator_button_task': elevator_button_task,
             'direct_nav': {
@@ -1699,12 +2124,30 @@ class VicPinkyGuiNode(Node):
         mission_feedback: dict[str, Any] | None,
         nav_feedback: dict[str, Any] | None,
         nav_result: dict[str, Any] | None,
+        mission_display: dict[str, Any] | None = None,
+        map_switch: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        status_state = str((mission_status or {}).get('state') or '')
-        active_task = str((mission_status or {}).get('active_task') or '')
-        message = str((mission_status or {}).get('message') or '')
+        status_state = str(
+            (mission_display or {}).get('state')
+            or (mission_status or {}).get('state')
+            or ''
+        )
+        active_task = str(
+            (mission_display or {}).get('active_task')
+            or (mission_status or {}).get('active_task')
+            or ''
+        )
+        message = str(
+            (mission_display or {}).get('message')
+            or (mission_status or {}).get('message')
+            or ''
+        )
 
-        if 'SWITCH_5F_MAP' in status_state:
+        if (map_switch or {}).get('state') in ('SWITCHING', 'WAITING_MAP'):
+            state = 'MAP_SWITCHING'
+            floor = (map_switch or {}).get('target_floor')
+            label = str((map_switch or {}).get('message') or 'Switching map')
+        elif 'SWITCH_5F_MAP' in status_state:
             state = 'MAP_SWITCHING'
             label = 'Loading 5F map'
             floor = 5
@@ -1752,6 +2195,9 @@ class VicPinkyGuiNode(Node):
             'label': label,
             'floor': floor,
             'mission_state': status_state,
+            'raw_mission_state': str(
+                (mission_status or {}).get('state') or '',
+            ),
             'active_task': active_task,
             'detail': detail,
         }
@@ -3165,6 +3611,7 @@ class VicPinkyGuiNode(Node):
             payload.get('object_label')
             or defaults['object_label']
         ).strip()
+        arm_task_name = str(payload.get('arm_task_name') or '').strip()
 
         if not mission_id:
             raise ValueError('mission_id is required')
@@ -3174,6 +3621,14 @@ class VicPinkyGuiNode(Node):
             raise ValueError('delivery_location is required')
         if not object_label:
             raise ValueError('object_label is required')
+        allowed_arm_tasks = {
+            option['name'] for option in ARM_TASK_OPTIONS
+        }
+        if arm_task_name not in allowed_arm_tasks:
+            raise ValueError(
+                'arm_task_name must be one of: '
+                + ', '.join(sorted(allowed_arm_tasks))
+            )
 
         target_floor = int(payload.get(
             'target_floor',
@@ -3186,6 +3641,7 @@ class VicPinkyGuiNode(Node):
         goal_msg.delivery_location = delivery_location
         goal_msg.target_floor = target_floor
         goal_msg.object_label = object_label
+        goal_msg.arm_task_name = arm_task_name
 
         return goal_msg, {
             'mission_id': mission_id,
@@ -3193,6 +3649,7 @@ class VicPinkyGuiNode(Node):
             'delivery_location': delivery_location,
             'target_floor': target_floor,
             'object_label': object_label,
+            'arm_task_name': arm_task_name,
         }
 
     def _mission_feedback_callback(self, feedback_msg: Any) -> None:

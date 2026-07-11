@@ -11,18 +11,6 @@ actions:
     timeout_sec: 120.0
     retry: 1
 
-  drive_straight:
-    server: /base/drive_straight
-    task_id: drive_straight
-    timeout_sec: 30.0
-    retry: 0
-
-  base_rotate:
-    server: /base/rotate
-    task_id: rotate
-    timeout_sec: 30.0
-    retry: 1
-
   board_elevator:
     server: /elevator/board
     task_id: board_elevator
@@ -39,25 +27,31 @@ actions:
     server: /arm/pick
     task_id: pick
     timeout_sec: 40.0
-    retry: 1
+    retry: 0
 
   place:
     server: /arm/place
     task_id: place
     timeout_sec: 40.0
-    retry: 1
+    retry: 0
+
+  arm_execute:
+    server: /arm/execute
+    task_id: arm_execute
+    timeout_sec: 120.0
+    retry: 0
 
   press_button:
     server: /arm/press_button
     task_id: press_button
     timeout_sec: 30.0
-    retry: 1
+    retry: 0
 
   homing:
     server: /arm/homing
     task_id: homing
     timeout_sec: 40.0
-    retry: 1
+    retry: 0
 
   wait_door_open:
     server: /elevator/wait_door_open

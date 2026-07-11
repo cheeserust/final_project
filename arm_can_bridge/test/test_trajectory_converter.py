@@ -22,15 +22,19 @@ JOINT_NAMES = (
 )
 
 
-def make_converter() -> ArmTrajectoryConverter:
+def make_converter(**overrides) -> ArmTrajectoryConverter:
     """Create a converter with broad test joint limits."""
+    kwargs = {
+        'joint_names': JOINT_NAMES,
+        'motor_ids': (0, 1, 2, 3),
+        'min_positions_rad': (-math.pi,) * 4,
+        'max_positions_rad': (math.pi,) * 4,
+        'speed_raw': 0,
+        'start_position_tolerance_rad': 0.02,
+    }
+    kwargs.update(overrides)
     return ArmTrajectoryConverter(
-        joint_names=JOINT_NAMES,
-        motor_ids=(0, 1, 2, 3),
-        min_positions_rad=(-math.pi,) * 4,
-        max_positions_rad=(math.pi,) * 4,
-        speed_raw=0,
-        start_position_tolerance_rad=0.02,
+        **kwargs,
     )
 
 
@@ -118,14 +122,14 @@ def test_reorders_joint_names_and_builds_four_frames():
 def test_builds_board1_and_board2_frames_for_five_axis_arm():
     converter = ArmTrajectoryConverter(
         joint_names=(
-            'base_joint',
             'arm_joint_1',
             'arm_joint_2',
             'arm_joint_3',
+            'base_joint',
             'arm_joint_4',
         ),
-        board_ids=(2, 1, 1, 1, 1),
-        motor_ids=(0, 0, 1, 2, 3),
+        board_ids=(1, 1, 1, 1, 2),
+        motor_ids=(0, 1, 2, 3, 0),
         min_positions_rad=(-math.pi,) * 5,
         max_positions_rad=(math.pi,) * 5,
         speed_raw=0,
@@ -160,7 +164,137 @@ def test_builds_board1_and_board2_frames_for_five_axis_arm():
 
     assert len(batches) == 1
     assert [frame.can_id for frame in batches[0].frames] == [
+        0x101,
+        0x101,
+        0x101,
+        0x101,
         0x102,
+    ]
+    assert [frame.data[0] for frame in batches[0].frames] == [
+        0x80,
+        0x81,
+        0x82,
+        0x83,
+        0x80,
+    ]
+    assert [frame_target(frame) for frame in batches[0].frames] == [
+        -5000,
+        -4000,
+        -3000,
+        -6000,
+        -2000,
+    ]
+    assert batches[0].queue_slots_by_board == {1: 4, 2: 1}
+
+
+def test_can_frames_are_sorted_by_board_and_motor_id():
+    converter = ArmTrajectoryConverter(
+        joint_names=(
+            'arm_joint_3',
+            'base_joint',
+            'arm_joint_1',
+            'arm_joint_2',
+            'arm_joint_4',
+        ),
+        board_ids=(1, 1, 1, 1, 2),
+        motor_ids=(2, 3, 0, 1, 0),
+        min_positions_rad=(-math.pi,) * 5,
+        max_positions_rad=(math.pi,) * 5,
+        speed_raw=0,
+        start_position_tolerance_rad=0.02,
+    )
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = [
+        'base_joint',
+        'arm_joint_1',
+        'arm_joint_2',
+        'arm_joint_3',
+        'arm_joint_4',
+    ]
+    trajectory.points = [
+        make_point(
+            (
+                math.radians(-60.0),
+                math.radians(-50.0),
+                math.radians(-40.0),
+                math.radians(-30.0),
+                math.radians(-20.0),
+            ),
+            50_000_000,
+        )
+    ]
+
+    batches = converter.convert(
+        trajectory,
+        current_positions_rad=(0.0,) * 5,
+    )
+
+    assert [frame.can_id for frame in batches[0].frames] == [
+        0x101,
+        0x101,
+        0x101,
+        0x101,
+        0x102,
+    ]
+    assert [frame.data[0] for frame in batches[0].frames] == [
+        0x80,
+        0x81,
+        0x82,
+        0x83,
+        0x80,
+    ]
+    assert [frame_target(frame) for frame in batches[0].frames] == [
+        -5000,
+        -4000,
+        -3000,
+        -6000,
+        -2000,
+    ]
+
+
+def test_builds_board1_frames_for_base_and_three_arm_joints():
+    converter = ArmTrajectoryConverter(
+        joint_names=(
+            'arm_joint_1',
+            'arm_joint_2',
+            'arm_joint_3',
+            'base_joint',
+        ),
+        board_ids=(1, 1, 1, 1),
+        motor_ids=(0, 1, 2, 3),
+        min_positions_rad=(-math.pi,) * 4,
+        max_positions_rad=(math.pi,) * 4,
+        speed_raw=0,
+        start_position_tolerance_rad=0.02,
+    )
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = [
+        'base_joint',
+        'arm_joint_1',
+        'arm_joint_2',
+        'arm_joint_3',
+    ]
+    trajectory.points = [
+        make_point(
+            (
+                math.radians(-60.0),
+                math.radians(-50.0),
+                math.radians(-40.0),
+                math.radians(-30.0),
+            ),
+            50_000_000,
+        )
+    ]
+
+    batches = converter.convert(
+        trajectory,
+        current_positions_rad=(0.0,) * 4,
+    )
+
+    assert len(batches) == 1
+    assert [frame.can_id for frame in batches[0].frames] == [
         0x101,
         0x101,
         0x101,
@@ -168,12 +302,58 @@ def test_builds_board1_and_board2_frames_for_five_axis_arm():
     ]
     assert [frame.data[0] for frame in batches[0].frames] == [
         0x80,
-        0x80,
         0x81,
         0x82,
         0x83,
     ]
-    assert batches[0].queue_slots_by_board == {1: 4, 2: 1}
+    assert [frame_target(frame) for frame in batches[0].frames] == [
+        -5000,
+        -4000,
+        -3000,
+        -6000,
+    ]
+    assert batches[0].queue_slots_by_board == {1: 4}
+
+
+def test_raw_position_signs_invert_motion_around_home_pose():
+    converter = ArmTrajectoryConverter(
+        joint_names=JOINT_NAMES,
+        motor_ids=(0, 1, 2, 3),
+        min_positions_rad=(-math.pi,) * 4,
+        max_positions_rad=(math.pi,) * 4,
+        raw_position_signs=(-1, -1, -1, -1),
+        raw_position_offsets_rad=(
+            math.radians(-180.0),
+            math.radians(-180.0),
+            math.radians(-180.0),
+            math.radians(-180.0),
+        ),
+        speed_raw=0,
+        start_position_tolerance_rad=0.02,
+    )
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = list(JOINT_NAMES)
+    trajectory.points = [
+        make_point(
+            (
+                math.radians(-80.0),
+                math.radians(-90.0),
+                math.radians(-90.0),
+                math.radians(-90.0),
+            ),
+            50_000_000,
+        )
+    ]
+
+    batches = converter.convert(
+        trajectory,
+        current_positions_rad=(math.radians(-90.0),) * 4,
+    )
+
+    assert frame_target(batches[0].frames[0]) == rad_to_angle_raw(
+        math.radians(-100.0)
+    )
 
 
 def test_builds_board3_frames_for_integrated_gripper():
@@ -195,8 +375,8 @@ def test_builds_board3_frames_for_integrated_gripper():
     )
     converter = ArmTrajectoryConverter(
         joint_names=joint_names,
-        board_ids=(2, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3),
-        motor_ids=(0, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, 8),
+        board_ids=(1, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3),
+        motor_ids=(0, 1, 2, 3, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8),
         min_positions_rad=(-math.pi,) * len(joint_names),
         max_positions_rad=(math.pi,) * len(joint_names),
         speed_raw=0,
@@ -234,11 +414,11 @@ def test_builds_board3_frames_for_integrated_gripper():
 
     assert len(batches) == 1
     assert [frame.can_id for frame in batches[0].frames] == [
+        0x101,
+        0x101,
+        0x101,
+        0x101,
         0x102,
-        0x101,
-        0x101,
-        0x101,
-        0x101,
         0x103,
         0x103,
         0x103,
@@ -400,6 +580,62 @@ def test_two_second_segment_is_split_for_uint8_duration():
 
     first_expected = rad_to_angle_raw(1.0 * 255.0 / 400.0)
     assert frame_target(batches[0].frames[0]) == first_expected
+
+
+def test_arm_segment_can_be_split_into_20_ms_absolute_points():
+    converter = make_converter(max_segment_duration_ticks=4)
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = list(JOINT_NAMES)
+    trajectory.points = [
+        make_point((1.0, 1.0, 1.0, 1.0), 50_000_000)
+    ]
+
+    batches = converter.convert(
+        trajectory,
+        current_positions_rad=(0.0, 0.0, 0.0, 0.0),
+    )
+
+    assert [batch.duration_ticks for batch in batches] == [4, 4, 2]
+    assert all(
+        frame.data[-1] <= 4
+        for batch in batches
+        for frame in batch.frames
+    )
+    assert [frame.data[0] for frame in batches[-1].frames] == [
+        0x80,
+        0x81,
+        0x82,
+        0x83,
+    ]
+    assert frame_target(batches[-1].frames[0]) == rad_to_angle_raw(1.0)
+
+
+def test_clamps_out_of_limit_current_position_before_interpolation():
+    converter = ArmTrajectoryConverter(
+        joint_names=('arm_joint_3',),
+        board_ids=(2,),
+        motor_ids=(0,),
+        min_positions_rad=(math.radians(-90.0),),
+        max_positions_rad=(math.radians(90.0),),
+        speed_raw=0,
+        start_position_tolerance_rad=0.02,
+        max_segment_duration_ticks=4,
+    )
+
+    trajectory = JointTrajectory()
+    trajectory.joint_names = ['arm_joint_3']
+    trajectory.points = [
+        make_point((0.0,), 15_000_000_000)
+    ]
+
+    batches = converter.convert(
+        trajectory,
+        current_positions_rad=(math.radians(-91.5),),
+    )
+
+    assert batches[0].target_positions_rad[0] >= math.radians(-90.0)
+    assert frame_target(batches[0].frames[0]) >= -9000
 
 
 def test_rejects_missing_or_unexpected_joint_names():

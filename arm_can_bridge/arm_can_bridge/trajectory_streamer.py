@@ -8,9 +8,10 @@ from typing import Callable, Iterable, Optional
 import rclpy
 
 from .board_state import MultiBoardStateTracker
-from .can_protocol import BOARD_ID_ALL
+from .can_protocol import CAN_ID_BOARD1_POSITION_COMMAND
+from .can_protocol import CAN_ID_BOARD2_POSITION_COMMAND
+from .can_protocol import CAN_ID_BOARD3_SERVO_COMMAND
 from .can_protocol import DURATION_TICK_NS
-from .can_protocol import pack_enable
 from .socketcan_transport import SocketCanTransport
 from .trajectory_converter import TrajectoryBatch
 
@@ -37,16 +38,32 @@ class TrajectoryStreamer:
         transport: SocketCanTransport,
         queue_wait_timeout_ms: int,
         completion_grace_ms: int,
+        arm_inter_frame_delay_ms: float = 0.0,
+        board3_inter_frame_delay_ms: float = 0.0,
+        max_in_flight_batches: int = 0,
     ) -> None:
         if queue_wait_timeout_ms <= 0:
             raise ValueError('queue_wait_timeout_ms must be positive')
         if completion_grace_ms <= 0:
             raise ValueError('completion_grace_ms must be positive')
+        if arm_inter_frame_delay_ms < 0.0:
+            raise ValueError('arm_inter_frame_delay_ms cannot be negative')
+        if board3_inter_frame_delay_ms < 0.0:
+            raise ValueError('board3_inter_frame_delay_ms cannot be negative')
+        if max_in_flight_batches < 0:
+            raise ValueError('max_in_flight_batches cannot be negative')
 
         self._board_state = board_state
         self._transport = transport
         self._queue_wait_timeout_s = queue_wait_timeout_ms / 1000.0
         self._completion_grace_s = completion_grace_ms / 1000.0
+        self._arm_inter_frame_delay_s = (
+            float(arm_inter_frame_delay_ms) / 1000.0
+        )
+        self._board3_inter_frame_delay_s = (
+            float(board3_inter_frame_delay_ms) / 1000.0
+        )
+        self._max_in_flight_batches = int(max_in_flight_batches)
 
     def stream(
         self,
@@ -72,16 +89,21 @@ class TrajectoryStreamer:
 
         for index, batch in enumerate(batch_list):
             self._raise_if_cancelled(cancel_requested)
+            max_in_flight_slots_by_board = (
+                self._max_in_flight_slots_by_board(batch)
+            )
 
             self._wait_for_queue_slots(
                 required_slots_by_board=batch.queue_slots_by_board,
+                max_in_flight_slots_by_board=max_in_flight_slots_by_board,
                 cancel_requested=cancel_requested,
             )
 
             # Reserve before sending, because 0x201 status only arrives
             # periodically and would otherwise overestimate free queue slots.
             if not self._board_state.reserve_queue_slots(
-                batch.queue_slots_by_board
+                batch.queue_slots_by_board,
+                max_in_flight_slots_by_board=max_in_flight_slots_by_board,
             ):
                 raise TrajectoryStreamingError(
                     'Queue slots disappeared before sending a batch'
@@ -96,12 +118,13 @@ class TrajectoryStreamer:
                     / 1_000_000_000.0
                 )
 
-                for frame in batch.frames:
+                for frame_index, frame in enumerate(batch.frames):
                     self._raise_if_cancelled(cancel_requested)
                     if motion_started_at_s is None:
                         motion_started_at_s = time.monotonic()
                     self._transport.send_frame(frame)
                     sent_any = True
+                    self._sleep_after_frame(batch, frame_index)
 
                 expected_motion_time_s += duration_s
 
@@ -117,6 +140,9 @@ class TrajectoryStreamer:
             if progress_callback is not None:
                 progress_callback(index + 1, total, batch)
 
+            if index < total - 1:
+                self._sleep_between_batches(batch, batch_list[index + 1])
+
         if motion_started_at_s is None:
             raise TrajectoryStreamingError('No CAN frames were sent')
 
@@ -129,16 +155,87 @@ class TrajectoryStreamer:
             cancel_requested=cancel_requested,
         )
 
-    def stop_by_disable(self) -> None:
-        """Stop motion by broadcasting the protocol disable command."""
-        self._transport.send_frame(
-            pack_enable(False, board_id=BOARD_ID_ALL)
-        )
+    def _sleep_after_frame(
+        self,
+        batch: TrajectoryBatch,
+        frame_index: int,
+    ) -> None:
+        if frame_index >= len(batch.frames) - 1:
+            return
+
+        current_can_id = batch.frames[frame_index].can_id
+        next_can_id = batch.frames[frame_index + 1].can_id
+
+        arm_command_ids = {
+            CAN_ID_BOARD1_POSITION_COMMAND,
+            CAN_ID_BOARD2_POSITION_COMMAND,
+        }
+
+        if (
+            self._arm_inter_frame_delay_s > 0.0
+            and current_can_id in arm_command_ids
+            and next_can_id in arm_command_ids
+        ):
+            time.sleep(self._arm_inter_frame_delay_s)
+            return
+
+        if (
+            self._board3_inter_frame_delay_s > 0.0
+            and current_can_id == CAN_ID_BOARD3_SERVO_COMMAND
+            and next_can_id == CAN_ID_BOARD3_SERVO_COMMAND
+        ):
+            time.sleep(self._board3_inter_frame_delay_s)
+            return
+
+    def _sleep_between_batches(
+        self,
+        current_batch: TrajectoryBatch,
+        next_batch: TrajectoryBatch,
+    ) -> None:
+        if not current_batch.frames or not next_batch.frames:
+            return
+
+        current_can_id = current_batch.frames[-1].can_id
+        next_can_id = next_batch.frames[0].can_id
+
+        arm_command_ids = {
+            CAN_ID_BOARD1_POSITION_COMMAND,
+            CAN_ID_BOARD2_POSITION_COMMAND,
+        }
+
+        if (
+            self._arm_inter_frame_delay_s > 0.0
+            and current_can_id in arm_command_ids
+            and next_can_id in arm_command_ids
+        ):
+            time.sleep(self._arm_inter_frame_delay_s)
+            return
+
+        if (
+            self._board3_inter_frame_delay_s > 0.0
+            and current_can_id == CAN_ID_BOARD3_SERVO_COMMAND
+            and next_can_id == CAN_ID_BOARD3_SERVO_COMMAND
+        ):
+            time.sleep(self._board3_inter_frame_delay_s)
+            return
+
+    def _max_in_flight_slots_by_board(
+        self,
+        batch: TrajectoryBatch,
+    ) -> dict[int, int] | None:
+        if self._max_in_flight_batches <= 0:
+            return None
+
+        return {
+            board_id: slots * self._max_in_flight_batches
+            for board_id, slots in batch.queue_slots_by_board.items()
+        }
 
     def _wait_for_queue_slots(
         self,
         *,
         required_slots_by_board: dict[int, int],
+        max_in_flight_slots_by_board: Optional[dict[int, int]],
         cancel_requested: Optional[CancelPredicate],
     ) -> None:
         deadline = time.monotonic() + self._queue_wait_timeout_s
@@ -146,7 +243,10 @@ class TrajectoryStreamer:
         while rclpy.ok() and time.monotonic() < deadline:
             self._raise_if_cancelled(cancel_requested)
 
-            if self._board_state.can_stream_slots(required_slots_by_board):
+            if self._board_state.can_stream_slots(
+                required_slots_by_board,
+                max_in_flight_slots_by_board=max_in_flight_slots_by_board,
+            ):
                 return
 
             if self._board_state.has_error():

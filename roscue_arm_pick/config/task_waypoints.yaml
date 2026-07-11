@@ -1,0 +1,127 @@
+# All offsets are meters. "frame: marker" means offset is rotated by marker pose.
+# "frame: base" means offset is added directly in base_link.
+#
+# Tune these values at the central/server side without changing Python code:
+# - button left/right/up/down offsets
+# - camera/marker systematic pose correction
+# - fixed place positions for robot tray and side table
+# - approach/lift/retreat distances
+
+global:
+  marker_pose_correction_m:
+    frame: "base"
+    # Keep this at zero when TF already maps camera detections into base_link.
+    # Tune only after measuring a systematic camera mount offset.
+    xyz: [0.0, 0.0, 0.0]
+
+planning:
+  marker_wait_sec: 2.0
+  marker_ttl_sec: 0.5
+  position_tolerance_m: 0.02
+  use_orientation_constraint: false
+  orientation_tolerance_rad: 3.14
+  velocity_scaling: 0.1
+  acceleration_scaling: 0.1
+  allowed_planning_time_sec: 10.0
+  planning_attempts: 30
+  move_action_wait_sec: 30.0
+  min_goal_z_m: 0.02
+  max_goal_z_m: 1.20
+
+buttons:
+  default:
+    # Marker frame convention from solvePnP:
+    # x/y are across marker plane, z is normal direction from marker toward camera.
+    pre_press_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.10]
+    press_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.03]
+    retreat_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.12]
+
+  elevator_up_button:
+    marker_id: 50
+    # Example: if button center is a few cm left/right from marker center,
+    # tune x/y here after hardware testing.
+    center_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.0]
+
+  floor_4_button:
+    marker_id: 51
+    center_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.0]
+
+  floor_5_button:
+    marker_id: 52
+    center_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.0]
+
+  elevator_down_button:
+    marker_id: 53
+    center_offset:
+      frame: "marker"
+      xyz: [0.0, 0.0, 0.0]
+
+objects:
+  object_1:
+    marker_id: 54
+    approach_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.14]
+    grasp_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.04]
+    lift_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.05]
+
+  object_2:
+    marker_id: 55
+    approach_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.14]
+    grasp_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.04]
+    lift_offset:
+      frame: "base"
+      xyz: [0.0, 0.0, 0.05]
+
+fixed_places:
+  # Robot arm front/lower temporary drop location.
+  robot_front_drop:
+    frame_id: "base_link"
+    position: [0.28, 0.00, 0.12]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+    approach_offset_m: [0.0, 0.0, 0.12]
+    retreat_offset_m: [0.0, 0.0, 0.14]
+
+  # Backward-compatible name.
+  robot_tray:
+    frame_id: "base_link"
+    position: [0.28, 0.00, 0.12]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+    approach_offset_m: [0.0, 0.0, 0.12]
+    retreat_offset_m: [0.0, 0.0, 0.14]
+
+  # Expected fixed location on the robot arm's left side.
+  left_table:
+    frame_id: "base_link"
+    position: [0.20, 0.28, 0.12]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+    approach_offset_m: [0.0, 0.0, 0.12]
+    retreat_offset_m: [0.0, 0.0, 0.14]
+
+  # Backward-compatible name.
+  side_table:
+    frame_id: "base_link"
+    position: [0.20, 0.28, 0.12]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+    approach_offset_m: [0.0, 0.0, 0.12]
+    retreat_offset_m: [0.0, 0.0, 0.14]

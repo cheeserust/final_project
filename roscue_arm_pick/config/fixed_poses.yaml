@@ -1,0 +1,73 @@
+calibration:
+  # Hardware execution remains locked until all arm signs, homes, limits,
+  # camera mount, and observation poses have been measured on the robot.
+  complete: false
+
+joint_order:
+  arm:
+    - base_joint
+    - arm_joint_1
+    - arm_joint_2
+    - arm_joint_3
+    - arm_joint_4
+
+  gripper:
+    - finger_1_base_joint
+    - finger_1_middle_joint
+    - finger_1_tip_joint
+    - finger_2_base_joint
+    - finger_2_middle_joint
+    - finger_2_tip_joint
+    - finger_3_base_joint
+    - finger_3_middle_joint
+    - finger_3_tip_joint
+
+arm_named_poses:
+  home:
+    positions_rad: [-1.57079633, -1.50098316, -1.38055544, -1.59697627, -1.57079633]
+    duration_sec: 3.0
+
+  ready:
+    positions_rad: [-1.57079633, -1.50098316, -1.38055544, -1.59697627, -1.57079633]
+    duration_sec: 3.0
+
+  observe_robot_front_drop:
+    # Hardware degrees: [90, 0, 80, 90, 0]
+    positions_rad: [1.57079633, -0.0, 1.39626340, 1.57079633, 0.0]
+    duration_sec: 3.0
+
+  observe_elevator_buttons:
+    # Hardware degrees: [0, 0, 50, 90, 0]
+    positions_rad: [0.0, -0.0, 0.87266463, 1.57079633, 0.0]
+    duration_sec: 3.0
+
+  observe_object_start:
+    # Provisional safe placeholder. Replace after camera-on-robot calibration.
+    positions_rad: [-1.57079633, -1.50098316, -1.38055544, -1.59697627, -1.57079633]
+    duration_sec: 3.0
+
+  hardware_home_reference:
+    positions_rad: [-1.57079633, -1.50098316, -1.38055544, -1.59697627, -1.57079633]
+    duration_sec: 3.0
+
+gripper_named_poses:
+  open:
+    positions_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    effort: 300
+    duration_sec: 2.0
+
+  press:
+    positions_rad: [0.0, -1.2, 1.2, 0.0, -1.2, 1.2, 0.0, -1.2, 1.2]
+    effort: 500
+    duration_sec: 2.0
+
+fixed_place_poses:
+  robot_tray:
+    frame_id: "base_link"
+    position: [0.25, 0.00, 0.15]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]
+
+  side_table:
+    frame_id: "base_link"
+    position: [0.20, 0.25, 0.15]
+    orientation_xyzw: [0.0, 0.0, 0.0, 1.0]

@@ -150,7 +150,7 @@
       <child link="${prefix}second_link"/>
       <origin xyz="-0.065000 0.000000 0.063000" rpy="0.000000 -1.570796 0.000000"/>
       <axis xyz="-0.000000 -0.000000 -1.000000"/>
-      <limit lower="-1.5708" upper="1.5708" effort="100.0" velocity="1.00"/>
+      <limit lower="-1.4835" upper="1.5708" effort="100.0" velocity="1.00"/>
     </joint>
 
     <joint name="${prefix}arm_joint_2" type="revolute">
@@ -158,7 +158,7 @@
       <child link="${prefix}third_link"/>
       <origin xyz="0.340500 0.000000 0.058500" rpy="-1.570796 -0.000000 -1.570796"/>
       <axis xyz="0.000000 1.000000 0.000000"/>
-      <limit lower="-1.3963" upper="1.3963" effort="100.0" velocity="1.00"/>
+      <limit lower="-1.3631" upper="1.3963" effort="100.0" velocity="1.00"/>
     </joint>
 
     <joint name="${prefix}arm_joint_3" type="revolute">
@@ -166,7 +166,7 @@
       <child link="${prefix}fourth_link"/>
       <origin xyz="-0.000500 0.019500 0.180000" rpy="-0.000000 0.000000 0.000000"/>
       <axis xyz="0.000000 1.000000 0.000000"/>
-      <limit lower="-1.5708" upper="1.5708" effort="100.0" velocity="1.00"/>
+      <limit lower="-1.5970" upper="1.5708" effort="100.0" velocity="1.00"/>
     </joint>
 
     <joint name="${prefix}arm_joint_4" type="revolute">
@@ -174,7 +174,7 @@
       <child link="${prefix}gripper_base_link"/>
       <origin xyz="-0.000000 0.002500 0.090000" rpy="0.000000 -0.000000 1.570796"/>
       <axis xyz="-0.000000 0.000000 1.000000"/>
-      <limit lower="-2.9671" upper="2.9671" effort="100.0" velocity="1.00"/>
+      <limit lower="-1.5708" upper="1.5708" effort="100.0" velocity="1.00"/>
     </joint>
 
     <!-- ROS 2 control: generated generic system -->

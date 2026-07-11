@@ -1,10 +1,9 @@
 import json
 from pathlib import Path
 
-import yaml
-
 from mission_manager.mission_flow_loader import MissionFlowLoader
 from mission_manager.mission_state import MissionContext
+import yaml
 
 
 def _write_yaml(path, data):
@@ -105,6 +104,7 @@ def test_points_are_expanded_to_mission_locations(tmp_path):
             delivery_location='object_place',
             target_floor=5,
             object_label='box',
+            arm_task_name='pick_object_2',
         )
     )
 
@@ -188,6 +188,7 @@ def test_location_can_reference_point_without_repeating_pose(tmp_path):
             delivery_location='dock',
             target_floor=4,
             object_label='box',
+            arm_task_name='pick_object_2',
         )
     )
 
@@ -211,6 +212,7 @@ def test_project_config_matches_driving_team_task_servers():
             delivery_location='object_place',
             target_floor=5,
             object_label='box',
+            arm_task_name='pick_object_2',
         )
     )
 
@@ -232,6 +234,10 @@ def test_project_config_matches_driving_team_task_servers():
     assert by_state['EXIT_ELEVATOR_RETURN'].marker_id == 4
     assert by_state['WAIT_5F'].marker_id == 5
     assert by_state['WAIT_4F'].marker_id == 4
+    assert by_state['ARM_TASK_AT_TARGET'].server == '/arm/execute'
+    assert json.loads(
+        by_state['ARM_TASK_AT_TARGET'].extra_json
+    )['arm_task_name'] == 'pick_object_2'
 
     states = [step.state for step in plan]
     assert states.index('SWITCH_5F_MAP') > states.index('EXIT_ELEVATOR')

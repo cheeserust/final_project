@@ -78,6 +78,7 @@ class MissionClient(Node):
         delivery_location: str,
         target_floor: int,
         object_label: str,
+        arm_task_name: str,
         wait_server_timeout_sec: float
     ) -> int:
         """
@@ -104,6 +105,7 @@ class MissionClient(Node):
         goal_msg.delivery_location = delivery_location
         goal_msg.target_floor = int(target_floor)
         goal_msg.object_label = object_label
+        goal_msg.arm_task_name = arm_task_name
 
         self.get_logger().info(
             'Sending mission goal: '
@@ -111,7 +113,8 @@ class MissionClient(Node):
             f'pickup={goal_msg.pickup_location}, '
             f'delivery={goal_msg.delivery_location}, '
             f'target_floor={goal_msg.target_floor}, '
-            f'object={goal_msg.object_label}'
+            f'object={goal_msg.object_label}, '
+            f'arm_task={goal_msg.arm_task_name}'
         )
 
         send_goal_future = self.client.send_goal_async(
@@ -302,6 +305,15 @@ def build_argument_parser():
     )
 
     parser.add_argument(
+        '--arm-task-name',
+        default=None,
+        help=(
+            'Concrete roscue_arm_pick task key, for example '
+            'pick_object_2 or place_to_table'
+        )
+    )
+
+    parser.add_argument(
         '--wait-server-timeout-sec',
         type=float,
         default=5.0,
@@ -330,6 +342,9 @@ def main(argv=None):
         _print_locations(location_floors)
         return 0
 
+    if not args.arm_task_name:
+        parser.error('--arm-task-name is required when sending a mission')
+
     target_floor = _infer_target_floor(
         delivery_location=args.delivery_location,
         target_floor=args.target_floor,
@@ -347,6 +362,7 @@ def main(argv=None):
             delivery_location=args.delivery_location,
             target_floor=target_floor,
             object_label=args.object_label,
+            arm_task_name=args.arm_task_name,
             wait_server_timeout_sec=args.wait_server_timeout_sec
         )
     finally:

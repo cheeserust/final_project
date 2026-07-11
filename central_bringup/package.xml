@@ -10,8 +10,13 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>mock_task_servers</exec_depend>
   <exec_depend>mission_manager</exec_depend>
+  <exec_depend>arm_can_bridge</exec_depend>
+  <exec_depend>roscue_arm_description</exec_depend>
+  <exec_depend>roscue_arm_moveit_config</exec_depend>
+  <exec_depend>roscue_arm_pick</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

@@ -8,6 +8,7 @@ import time
 from typing import Mapping, Optional
 
 from .can_protocol import (
+    ALL_MOTORS,
     BOARD2_REQUIRED_HOMING_MASK,
     BOARD3_SERVO_COUNT,
     BOARD_ID_BOARD1,
@@ -289,8 +290,14 @@ class BoardStateTracker:
             if status is None or self.is_status_stale(now=now):
                 return False
 
+            allowed_states = (
+                (BoardStateCode.IDLE, BoardStateCode.CONTACT_HOLD)
+                if self._board_id == BOARD_ID_BOARD3
+                else (BoardStateCode.IDLE,)
+            )
+
             return (
-                status.state == BoardStateCode.IDLE
+                status.state in allowed_states
                 and status.error_code == BoardError.NONE
                 and status.enabled
                 and self._readiness_ok(status)
@@ -301,11 +308,17 @@ class BoardStateTracker:
         self,
         required_slots: int,
         *,
+        max_in_flight_slots: Optional[int] = None,
         now: Optional[float] = None,
     ) -> bool:
         """Return whether trajectory frames can be streamed now."""
         if required_slots <= 0:
             raise ValueError('required_slots must be greater than zero')
+        if max_in_flight_slots is not None:
+            if max_in_flight_slots < required_slots:
+                raise ValueError(
+                    'max_in_flight_slots must be >= required_slots'
+                )
 
         with self._lock:
             status = self._status
@@ -314,7 +327,7 @@ class BoardStateTracker:
                 return False
 
             allowed_states = (
-                (BoardStateCode.IDLE,)
+                (BoardStateCode.IDLE, BoardStateCode.CONTACT_HOLD)
                 if self._board_id == BOARD_ID_BOARD3
                 else (BoardStateCode.IDLE, BoardStateCode.MOVING)
             )
@@ -330,12 +343,22 @@ class BoardStateTracker:
             return (
                 board_can_move
                 and self._local_queue_free >= required_slots
+                and (
+                    max_in_flight_slots is None
+                    or (
+                        self._queue_capacity
+                        - self._local_queue_free
+                        + required_slots
+                    )
+                    <= max_in_flight_slots
+                )
             )
 
     def reserve_queue_slots(
         self,
         required_slots: int,
         *,
+        max_in_flight_slots: Optional[int] = None,
         now: Optional[float] = None,
     ) -> bool:
         """Atomically reserve local queue credit before sending frames."""
@@ -343,7 +366,11 @@ class BoardStateTracker:
             raise ValueError('required_slots must be greater than zero')
 
         with self._lock:
-            if not self.can_stream_slots(required_slots, now=now):
+            if not self.can_stream_slots(
+                required_slots,
+                max_in_flight_slots=max_in_flight_slots,
+                now=now,
+            ):
                 return False
 
             self._local_queue_free -= required_slots
@@ -378,19 +405,19 @@ class BoardStateTracker:
             if status is None or self.is_status_stale(now=now):
                 return False
 
+            done_states = (
+                (BoardStateCode.IDLE, BoardStateCode.CONTACT_HOLD)
+                if self._board_id == BOARD_ID_BOARD3
+                else (BoardStateCode.IDLE,)
+            )
+
             return (
-                status.state == BoardStateCode.IDLE
+                status.state in done_states
                 and status.error_code == BoardError.NONE
                 and (
                     status.board3_staging_count == 0
                     if self._board_id == BOARD_ID_BOARD3
-                    else (
-                        status.axis_moving_mask == 0
-                        and (
-                            status.axis_target_reached_mask
-                            & self._required_homing_mask
-                        ) == self._required_homing_mask
-                    )
+                    else status.moving_motor_id == ALL_MOTORS
                 )
                 and status.queue_free == self._queue_capacity
                 and status.enabled
@@ -435,13 +462,8 @@ class BoardStateTracker:
     def _readiness_ok(self, status: BoardStatus) -> bool:
         if self._requires_homing:
             return (
-                (
-                    status.axis_homed_mask & self._required_homing_mask
-                ) == self._required_homing_mask
-                and (
-                    status.axis_ready_mask & self._required_homing_mask
-                ) == self._required_homing_mask
-            )
+                status.homing_done_bits & self._required_homing_mask
+            ) == self._required_homing_mask
 
         if self._requires_ready:
             return status.homing_done_bits == 1
@@ -584,6 +606,7 @@ class MultiBoardStateTracker:
         self,
         required_slots_by_board: Mapping[int, int],
         *,
+        max_in_flight_slots_by_board: Optional[Mapping[int, int]] = None,
         now: Optional[float] = None,
     ) -> bool:
         """Return whether every required board has enough queue credit."""
@@ -593,7 +616,19 @@ class MultiBoardStateTracker:
             tracker = self._trackers.get(validate_board_id(board_id))
             if tracker is None:
                 return False
-            if not tracker.can_stream_slots(slots, now=now):
+            max_in_flight_slots = (
+                int(max_in_flight_slots_by_board[board_id])
+                if (
+                    max_in_flight_slots_by_board
+                    and board_id in max_in_flight_slots_by_board
+                )
+                else None
+            )
+            if not tracker.can_stream_slots(
+                slots,
+                max_in_flight_slots=max_in_flight_slots,
+                now=now,
+            ):
                 return False
 
         return True
@@ -602,6 +637,7 @@ class MultiBoardStateTracker:
         self,
         required_slots_by_board: Mapping[int, int],
         *,
+        max_in_flight_slots_by_board: Optional[Mapping[int, int]] = None,
         now: Optional[float] = None,
     ) -> bool:
         """Reserve queue slots on all boards atomically enough for streaming."""
@@ -615,7 +651,19 @@ class MultiBoardStateTracker:
                 for previous_tracker, previous_slots in reserved:
                     previous_tracker.refund_queue_slots(previous_slots)
                 return False
-            if not tracker.reserve_queue_slots(slots, now=now):
+            max_in_flight_slots = (
+                int(max_in_flight_slots_by_board[board_id])
+                if (
+                    max_in_flight_slots_by_board
+                    and board_id in max_in_flight_slots_by_board
+                )
+                else None
+            )
+            if not tracker.reserve_queue_slots(
+                slots,
+                max_in_flight_slots=max_in_flight_slots,
+                now=now,
+            ):
                 for previous_tracker, previous_slots in reserved:
                     previous_tracker.refund_queue_slots(previous_slots)
                 return False

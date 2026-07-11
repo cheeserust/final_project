@@ -110,12 +110,12 @@
     <limit lower="-1.9426" upper="1.9426" effort="100.0" velocity="1.00"/>
   </joint>
 
-  <!-- ROS 2 control: generated generic system -->
-  <ros2_control name="roscue_arm_system" type="system">
+  <!-- ROS 2 control: gripper-only mock system. -->
+  <ros2_control name="roscue_gripper_system" type="system">
     <hardware>
       <plugin>mock_components/GenericSystem</plugin>
-      <param name="cmd_topic">sim/roscue_arm_system/cmd</param>
-      <param name="state_topic">sim/roscue_arm_system/state</param>
+      <param name="cmd_topic">sim/roscue_gripper_system/cmd</param>
+      <param name="state_topic">sim/roscue_gripper_system/state</param>
     </hardware>
 
     <joint name="finger_1_base_joint">
@@ -208,5 +208,34 @@
       <state_interface name="effort"/>
     </joint>
   </ros2_control>
+
+  <!--
+    RealSense wrist mount. The camera driver owns camera_link's optical-frame
+    children; robot_state_publisher only connects the camera to the arm.
+    Replace this provisional transform after measuring the physical mount.
+  -->
+  <link name="camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.090 0.025 0.025"/>
+      </geometry>
+      <material name="camera_gray">
+        <color rgba="0.2 0.2 0.2 1.0"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.090 0.025 0.025"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_mount_joint" type="fixed">
+    <parent link="gripper_base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.0 0.0 0.07" rpy="0.0 0.0 0.0"/>
+  </joint>
 
 </robot>

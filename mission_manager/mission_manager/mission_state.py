@@ -26,6 +26,7 @@ class MissionContext:
     delivery_location: str
     target_floor: int
     object_label: str
+    arm_task_name: str
 
 
 @dataclass(frozen=True)

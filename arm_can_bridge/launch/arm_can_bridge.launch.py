@@ -19,6 +19,7 @@ def generate_launch_description():
 
     can_interface = LaunchConfiguration('can_interface')
     enable_gripper = LaunchConfiguration('enable_gripper')
+    execution_mode = LaunchConfiguration('execution_mode')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -31,6 +32,11 @@ def generate_launch_description():
             default_value='true',
             description='Whether to enable Board3 gripper controller.',
         ),
+        DeclareLaunchArgument(
+            'execution_mode',
+            default_value='plan_only',
+            description='plan_only rejects motion; hardware enables it.',
+        ),
         Node(
             package='arm_can_bridge',
             executable='arm_can_bridge_node',
@@ -40,6 +46,7 @@ def generate_launch_description():
                 parameter_file,
                 {
                     'can_interface': can_interface,
+                    'execution_mode': execution_mode,
                     'enable_gripper': ParameterValue(
                         enable_gripper,
                         value_type=bool,

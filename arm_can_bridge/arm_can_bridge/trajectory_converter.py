@@ -68,6 +68,9 @@ class ArmTrajectoryConverter:
         speed_raw: int = 0,
         aux_raw_by_board: Mapping[int, int] | None = None,
         start_position_tolerance_rad: float = 0.02,
+        raw_position_signs: Sequence[float] | None = None,
+        raw_position_offsets_rad: Sequence[float] | None = None,
+        max_segment_duration_ticks: int = MAX_DURATION_TICKS,
     ):
         self._joint_names = tuple(joint_names)
         self._board_ids = tuple(
@@ -85,6 +88,22 @@ class ArmTrajectoryConverter:
         self._max_positions = tuple(
             float(value) for value in max_positions_rad
         )
+        self._raw_position_signs = tuple(
+            float(value)
+            for value in (
+                raw_position_signs
+                if raw_position_signs is not None
+                else [1.0] * len(joint_names)
+            )
+        )
+        self._raw_position_offsets_rad = tuple(
+            float(value)
+            for value in (
+                raw_position_offsets_rad
+                if raw_position_offsets_rad is not None
+                else [0.0] * len(joint_names)
+            )
+        )
         self._speed_raw = int(speed_raw)
         self._aux_raw_by_board = {
             validate_board_id(board_id): int(value)
@@ -97,6 +116,7 @@ class ArmTrajectoryConverter:
         self._start_tolerance = float(
             start_position_tolerance_rad
         )
+        self._max_segment_duration_ticks = int(max_segment_duration_ticks)
 
         self._validate_configuration()
 
@@ -141,6 +161,23 @@ class ArmTrajectoryConverter:
                 'max_positions_rad length must match joint_names'
             )
 
+        if len(self._raw_position_signs) != count:
+            raise ValueError(
+                'raw_position_signs length must match joint_names'
+            )
+
+        if len(self._raw_position_offsets_rad) != count:
+            raise ValueError(
+                'raw_position_offsets_rad length must match joint_names'
+            )
+
+        for index, sign in enumerate(self._raw_position_signs):
+            if sign not in (-1.0, 1.0):
+                raise ValueError(
+                    'raw_position_signs values must be -1 or 1; '
+                    f'{self._joint_names[index]} has {sign}'
+                )
+
         if not 0 <= self._speed_raw <= 0xFFFF:
             raise ValueError('speed_raw must fit uint16')
 
@@ -159,6 +196,12 @@ class ArmTrajectoryConverter:
         if self._start_tolerance < 0.0:
             raise ValueError(
                 'start_position_tolerance_rad cannot be negative'
+            )
+
+        if not 1 <= self._max_segment_duration_ticks <= MAX_DURATION_TICKS:
+            raise ValueError(
+                'max_segment_duration_ticks must be in range '
+                f'1..{MAX_DURATION_TICKS}'
             )
 
         for index, minimum in enumerate(self._min_positions):
@@ -319,10 +362,16 @@ class ArmTrajectoryConverter:
     @staticmethod
     def _split_duration_ticks(
         duration_ns: int,
+        max_segment_duration_ticks: int = MAX_DURATION_TICKS,
     ) -> tuple[int, ...]:
         if duration_ns <= 0:
             raise TrajectoryConversionError(
                 'Segment duration must be greater than zero'
+            )
+        if not 1 <= int(max_segment_duration_ticks) <= MAX_DURATION_TICKS:
+            raise TrajectoryConversionError(
+                'max_segment_duration_ticks must be in range '
+                f'1..{MAX_DURATION_TICKS}'
             )
 
         total_ticks = math.ceil(
@@ -332,7 +381,7 @@ class ArmTrajectoryConverter:
         chunks = []
 
         while total_ticks > 0:
-            chunk = min(total_ticks, MAX_DURATION_TICKS)
+            chunk = min(total_ticks, int(max_segment_duration_ticks))
             chunks.append(int(chunk))
             total_ticks -= chunk
 
@@ -342,13 +391,37 @@ class ArmTrajectoryConverter:
         board_id = self._board_ids[joint_index]
         return self._aux_raw_by_board.get(board_id, self._speed_raw)
 
+    def _target_raw_for_joint(
+        self,
+        joint_index: int,
+        target_position_rad: float,
+    ) -> int:
+        firmware_position_rad = (
+            self._raw_position_signs[joint_index]
+            * float(target_position_rad)
+            + self._raw_position_offsets_rad[joint_index]
+        )
+        return rad_to_angle_raw(firmware_position_rad)
+
+    def _clamp_positions_to_limits(
+        self,
+        positions: Sequence[float],
+    ) -> tuple[float, ...]:
+        return tuple(
+            min(
+                max(float(position), self._min_positions[index]),
+                self._max_positions[index],
+            )
+            for index, position in enumerate(positions)
+        )
+
     def _build_frames(
         self,
         target_positions: Sequence[float],
         duration_ticks: int,
         target_loads_raw: Sequence[int | None] | None = None,
     ) -> tuple[CanFrame, ...]:
-        frames = []
+        ordered_frames: list[tuple[int, int, CanFrame]] = []
 
         if (
             target_loads_raw is not None
@@ -358,7 +431,10 @@ class ArmTrajectoryConverter:
 
         for index, target_position in enumerate(target_positions):
             board_id = self._board_ids[index]
-            target_pos_raw = rad_to_angle_raw(target_position)
+            target_pos_raw = self._target_raw_for_joint(
+                index,
+                target_position,
+            )
 
             if board_id == BOARD_ID_BOARD3:
                 target_load = self._aux_raw_for_joint(index)
@@ -386,9 +462,15 @@ class ArmTrajectoryConverter:
                     relative=False,
                     step_mode=False,
                 )
-            frames.append(frame)
+            ordered_frames.append((board_id, self._motor_ids[index], frame))
 
-        return tuple(frames)
+        return tuple(
+            frame
+            for _, _, frame in sorted(
+                ordered_frames,
+                key=lambda item: (item[0], item[1]),
+            )
+        )
 
     def convert(
         self,
@@ -421,7 +503,9 @@ class ArmTrajectoryConverter:
         )
 
         batches = []
-        previous_positions = current_positions
+        previous_positions = self._clamp_positions_to_limits(
+            current_positions
+        )
         previous_time_ns = 0
 
         for point_index, point in enumerate(trajectory.points):
@@ -445,7 +529,7 @@ class ArmTrajectoryConverter:
                     abs(target - current)
                     for target, current in zip(
                         target_positions,
-                        current_positions,
+                        previous_positions,
                     )
                 )
 
@@ -469,7 +553,8 @@ class ArmTrajectoryConverter:
             )
 
             tick_chunks = self._split_duration_ticks(
-                segment_duration_ns
+                segment_duration_ns,
+                self._max_segment_duration_ticks,
             )
 
             total_ticks = sum(tick_chunks)
@@ -490,6 +575,9 @@ class ArmTrajectoryConverter:
                             previous_positions,
                             target_positions,
                         )
+                    )
+                    intermediate_target = self._clamp_positions_to_limits(
+                        intermediate_target
                     )
 
                 frames = self._build_frames(

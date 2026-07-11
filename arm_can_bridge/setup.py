@@ -46,6 +46,7 @@ setup(
             'send_arm_pose = arm_can_bridge.send_arm_pose:main',
             'send_gripper_pose = arm_can_bridge.send_gripper_pose:main',
             'board3_can_smoke_test = arm_can_bridge.board3_can_smoke_test:main',
+            'board3_uart_debug = arm_can_bridge.board3_uart_debug:main',
         ],
     },
 )

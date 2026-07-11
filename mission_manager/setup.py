@@ -40,7 +40,6 @@ setup(
             'mission_manager_node = mission_manager.mission_manager_node:main',
             'send_mission = mission_manager.send_mission:main',
             'send_demo_mission = mission_manager.send_demo_mission:main',
-            'check_driving_integration = mission_manager.check_driving_integration:main',
         ],
     },
 )

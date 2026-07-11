@@ -47,12 +47,6 @@ BOARD2_REQUIRED_HOMING_MASK = 0x01
 BOARD3_READY_VALUE = 0x01
 QUEUE_CAPACITY = 32
 
-AXIS_FLAG_POSITION_VALID = 0x01
-AXIS_FLAG_HOMED = AXIS_FLAG_POSITION_VALID
-AXIS_FLAG_READY = 0x02
-AXIS_FLAG_MOVING = 0x04
-AXIS_FLAG_TARGET_REACHED = 0x08
-
 ANGLE_RAW_PER_DEGREE = 100.0
 DURATION_TICK_NS = 5_000_000
 MAX_DURATION_TICKS = 0xFF
@@ -112,6 +106,7 @@ class BoardState(IntEnum):
     ERROR = 4
     ESTOP = 5
     DISABLED = 6
+    CONTACT_HOLD = 7
 
 
 class BoardError(IntEnum):
@@ -222,85 +217,15 @@ class BoardStatus:
         return self.reserved
 
     @property
-    def status_sequence(self) -> int:
-        """Return Board1/2 compact status sequence carried in byte 7."""
-        return self.reserved
-
-    @property
-    def axis_count(self) -> int:
-        """Return the number of local axes represented by this status."""
-        if self.board_id == BOARD_ID_BOARD1:
-            return BOARD1_MOTOR_COUNT
-        if self.board_id == BOARD_ID_BOARD2:
-            return BOARD2_MOTOR_COUNT
-        return 0
-
-    @property
-    def axis_flags(self) -> tuple[int, ...]:
-        """Return compact Board1/2 per-axis status flags."""
-        if self.board_id not in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
-            return ()
-
-        flags = (
-            self.homing_done_bits & 0x0F,
-            (self.homing_done_bits >> 4) & 0x0F,
-            self.moving_motor_id & 0x0F,
-            (self.moving_motor_id >> 4) & 0x0F,
-        )
-        return flags[:self.axis_count]
-
-    @property
-    def axis_homed_mask(self) -> int:
-        """Return a bit mask for axes with valid/homed position feedback."""
-        return self._axis_mask_for_flag(AXIS_FLAG_HOMED)
-
-    @property
-    def axis_ready_mask(self) -> int:
-        """Return a bit mask for axes reporting ready."""
-        return self._axis_mask_for_flag(AXIS_FLAG_READY)
-
-    @property
-    def axis_moving_mask(self) -> int:
-        """Return a bit mask for axes currently moving."""
-        return self._axis_mask_for_flag(AXIS_FLAG_MOVING)
-
-    @property
-    def axis_target_reached_mask(self) -> int:
-        """Return a bit mask for axes that reached their target."""
-        return self._axis_mask_for_flag(AXIS_FLAG_TARGET_REACHED)
-
-    def _axis_mask_for_flag(self, flag: int) -> int:
-        mask = 0
-        for axis_index, axis_flags in enumerate(self.axis_flags):
-            if axis_flags & flag:
-                mask |= 1 << axis_index
-        return mask
-
-    @property
-    def all_required_axes_ready(self) -> bool:
-        """Return whether all required Board1/2 axes report ready."""
-        if self.board_id == BOARD_ID_BOARD1:
-            return (
-                self.axis_ready_mask & REQUIRED_HOMING_MASK
-            ) == REQUIRED_HOMING_MASK
-        if self.board_id == BOARD_ID_BOARD2:
-            return (
-                self.axis_ready_mask & BOARD2_REQUIRED_HOMING_MASK
-            ) == BOARD2_REQUIRED_HOMING_MASK
-        if self.board_id == BOARD_ID_BOARD3:
-            return self.homing_done_bits == BOARD3_READY_VALUE
-        return False
-
-    @property
     def all_required_axes_homed(self) -> bool:
         """Return whether this board's homing or ready requirement is met."""
         if self.board_id == BOARD_ID_BOARD1:
             return (
-                self.axis_homed_mask & REQUIRED_HOMING_MASK
+                self.homing_done_bits & REQUIRED_HOMING_MASK
             ) == REQUIRED_HOMING_MASK
         if self.board_id == BOARD_ID_BOARD2:
             return (
-                self.axis_homed_mask & BOARD2_REQUIRED_HOMING_MASK
+                self.homing_done_bits & BOARD2_REQUIRED_HOMING_MASK
             ) == BOARD2_REQUIRED_HOMING_MASK
         if self.board_id == BOARD_ID_BOARD3:
             return self.homing_done_bits == BOARD3_READY_VALUE
@@ -309,11 +234,7 @@ class BoardStatus:
     @property
     def has_fault(self) -> bool:
         """Return whether this status reports a limit or servo fault."""
-        if self.board_id in (
-            BOARD_ID_BOARD1,
-            BOARD_ID_BOARD2,
-            BOARD_ID_BOARD3,
-        ):
+        if self.board_id == BOARD_ID_BOARD3:
             return self.limit_status_bits != 0
         return False
 
@@ -333,12 +254,17 @@ class BoardStatus:
     @property
     def prepared_for_trajectory(self) -> bool:
         """Return whether trajectory commands may be streamed safely."""
+        allowed_states = (
+            (BoardState.IDLE, BoardState.MOVING, BoardState.CONTACT_HOLD)
+            if self.board_id == BOARD_ID_BOARD3
+            else (BoardState.IDLE, BoardState.MOVING)
+        )
+
         return (
             self.healthy
             and self.enabled
             and self.all_required_axes_homed
-            and self.all_required_axes_ready
-            and self.state in (BoardState.IDLE, BoardState.MOVING)
+            and self.state in allowed_states
         )
 
     @property
@@ -347,22 +273,14 @@ class BoardStatus:
         if self.board_id == BOARD_ID_BOARD3:
             return (
                 self.healthy
-                and self.state == BoardState.IDLE
+                and self.state in (BoardState.IDLE, BoardState.CONTACT_HOLD)
                 and self.board3_staging_count == 0
             )
 
-        target_mask = (
-            REQUIRED_HOMING_MASK
-            if self.board_id == BOARD_ID_BOARD1
-            else BOARD2_REQUIRED_HOMING_MASK
-        )
         return (
             self.healthy
             and self.state == BoardState.IDLE
-            and self.axis_moving_mask == 0
-            and (
-                self.axis_target_reached_mask & target_mask
-            ) == target_mask
+            and self.moving_motor_id == ALL_MOTORS
         )
 
 
@@ -381,18 +299,36 @@ class Board3PositionFeedbackGroup:
 
 
 @dataclass(frozen=True)
-class CompactPositionFeedback:
-    """Decoded compact Board1/2 actual-position feedback."""
+class MotorPositionFeedback:
+    """Decoded actual-position feedback for Board1/2 CAN ID 0x301/0x302."""
 
     board_id: int
-    positions_raw: tuple[int, ...]
-    positions_rad: tuple[float, ...]
-    reserved_raw: tuple[int, ...]
+    motor_id: int
+    flags: int
+    position_raw: int
+    position_rad: float
+    error_code: int
+    sequence: int
 
     @property
-    def motor_ids(self) -> tuple[int, ...]:
-        """Return local motor ids represented by position byte slots."""
-        return tuple(range(len(self.positions_raw)))
+    def position_valid(self) -> bool:
+        """Return whether the position field is valid."""
+        return bool(self.flags & 0x01)
+
+    @property
+    def homed(self) -> bool:
+        """Return whether this motor is homed or ready."""
+        return bool(self.flags & 0x02)
+
+    @property
+    def moving(self) -> bool:
+        """Return whether this motor is currently moving."""
+        return bool(self.flags & 0x04)
+
+    @property
+    def target_reached(self) -> bool:
+        """Return whether this motor reports target reached."""
+        return bool(self.flags & 0x08)
 
 
 def rad_to_angle_raw(radian: float) -> int:
@@ -735,8 +671,8 @@ def unpack_motor_position_feedback(
     data: bytes,
     *,
     board_id: int,
-) -> CompactPositionFeedback:
-    """Decode one Board1/2 compact actual-position feedback payload."""
+) -> MotorPositionFeedback:
+    """Decode one Board1/2 actual-position feedback payload."""
     normalized_board_id = validate_board_id(board_id)
     if normalized_board_id == BOARD_ID_BOARD3:
         raise ValueError('Board3 position feedback uses compressed groups')
@@ -746,20 +682,27 @@ def unpack_motor_position_feedback(
             'Motor position feedback payload must contain 8 bytes'
         )
 
-    raw_slots = tuple(
-        int(value)
-        for value in struct.unpack_from('<hhhh', data, 0)
-    )
-    axis_count = motor_count_for_board(normalized_board_id)
-    positions_raw = raw_slots[:axis_count]
-    return CompactPositionFeedback(
+    motor_id = int(data[0])
+    if not 0 <= motor_id < motor_count_for_board(normalized_board_id):
+        raise ValueError(
+            f'motor_id {motor_id} is invalid for board {normalized_board_id}'
+        )
+
+    flags = int(data[1])
+    if flags & 0xF0:
+        raise ValueError(
+            f'Motor position feedback reserved flag bits set: {flags:#04x}'
+        )
+
+    position_raw = struct.unpack_from('<i', data, 2)[0]
+    return MotorPositionFeedback(
         board_id=normalized_board_id,
-        positions_raw=positions_raw,
-        positions_rad=tuple(
-            angle_raw_to_rad(value)
-            for value in positions_raw
-        ),
-        reserved_raw=raw_slots[axis_count:],
+        motor_id=motor_id,
+        flags=flags,
+        position_raw=int(position_raw),
+        position_rad=angle_raw_to_rad(position_raw),
+        error_code=int(data[6]),
+        sequence=int(data[7]),
     )
 
 

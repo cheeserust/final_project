@@ -29,21 +29,6 @@ mission:
       extra:
         button_role: elevator_call
 
-    - state: DRIVE_FORWARD_TO_ELEVATOR_VIEW
-      task: drive_straight
-      target: forward
-      location: elevator_door_4f
-      extra:
-        distance_m: 0.60
-        speed_mps: 0.15
-
-    - state: FACE_ELEVATOR_DOOR
-      task: base_rotate
-      target: left_80
-      location: elevator_door_4f
-      extra:
-        angle_deg: 80
-
     - state: WAIT_ELEVATOR_OPEN
       task: wait_door_open
       target: elevator_door_4f
@@ -93,15 +78,13 @@ mission:
       target: "$delivery_location"
       location: "$delivery_location"
 
-    # 지금 ExecuteMission Goal에는 pick/place 선택 필드가 없어서 기본은 place다.
-    # 5층에서 물건을 집는 미션이면 task를 pick으로 바꾸거나, 이후 Goal에
-    # arm_task 필드를 추가해서 동적으로 선택하게 확장하면 된다.
     - state: ARM_TASK_AT_TARGET
-      task: place
+      task: arm_execute
       target: "$delivery_location"
       location: "$delivery_location"
       extra:
         object_label: "$object_label"
+        arm_task_name: "$arm_task_name"
 
     - state: RETURN_TO_ELEVATOR
       task: go_to
@@ -122,21 +105,6 @@ mission:
       location: elevator_call_button_5f
       extra:
         button_role: elevator_call
-
-    - state: DRIVE_FORWARD_TO_ELEVATOR_VIEW_RETURN
-      task: drive_straight
-      target: forward
-      location: elevator_door_5f
-      extra:
-        distance_m: 0.60
-        speed_mps: 0.15
-
-    - state: FACE_ELEVATOR_DOOR_RETURN
-      task: base_rotate
-      target: left_80
-      location: elevator_door_5f
-      extra:
-        angle_deg: 80
 
     - state: WAIT_ELEVATOR_OPEN_RETURN
       task: wait_door_open

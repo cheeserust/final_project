@@ -1,0 +1,96 @@
+mission_allowed_tasks:
+  - pick_object_1
+  - pick_object_2
+  - place_to_robot
+  - place_to_table
+  - press_elevator_up
+  - press_elevator_down
+  - press_floor_4
+  - press_floor_5
+
+tasks:
+  home:
+    type: "home"
+
+  observe_robot_front_drop:
+    type: "named_arm_pose"
+    pose_name: "observe_robot_front_drop"
+
+  observe_elevator_buttons:
+    type: "named_arm_pose"
+    pose_name: "observe_elevator_buttons"
+
+  press_elevator_up:
+    type: "press_button"
+    marker_id: 50
+    observe_pose: "observe_elevator_buttons"
+
+  press_floor_4:
+    type: "press_button"
+    marker_id: 51
+    observe_pose: "observe_elevator_buttons"
+
+  press_floor_5:
+    type: "press_button"
+    marker_id: 52
+    observe_pose: "observe_elevator_buttons"
+
+  press_elevator_down:
+    type: "press_button"
+    marker_id: 53
+    observe_pose: "observe_elevator_buttons"
+
+  pick_object_1:
+    type: "pick_to_fixed_place"
+    marker_id: 54
+    object_key: "object_1"
+    place_name: "robot_front_drop"
+
+  pick_object_2:
+    type: "pick_to_fixed_place"
+    marker_id: 55
+    object_key: "object_2"
+    place_name: "robot_front_drop"
+    observe_pose: "observe_object_start"
+
+  place_to_robot:
+    type: "place_fixed"
+    place_name: "robot_front_drop"
+
+  place_to_table:
+    type: "pick_previous_to_fixed_place"
+    fallback_marker_id: 54
+    fallback_object_key: "object_1"
+    place_name: "left_table"
+
+  pick_object_1_to_tray:
+    type: "pick_to_fixed_place"
+    marker_id: 54
+    object_key: "object_1"
+    place_name: "robot_tray"
+
+  pick_object_2_to_tray:
+    type: "pick_to_fixed_place"
+    marker_id: 55
+    object_key: "object_2"
+    place_name: "robot_tray"
+
+  pick_object_1_to_side_table:
+    type: "pick_to_fixed_place"
+    marker_id: 54
+    object_key: "object_1"
+    place_name: "side_table"
+
+  pick_object_2_to_side_table:
+    type: "pick_to_fixed_place"
+    marker_id: 55
+    object_key: "object_2"
+    place_name: "side_table"
+
+  press_4f:
+    type: "alias"
+    target: "press_floor_4"
+
+  press_5f:
+    type: "alias"
+    target: "press_floor_5"

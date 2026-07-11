@@ -339,6 +339,7 @@ class MissionFlowLoader:
             'delivery_location': context.delivery_location,
             'target_floor': context.target_floor,
             'object_label': context.object_label,
+            'arm_task_name': context.arm_task_name,
         }
 
     def _resolve_value(

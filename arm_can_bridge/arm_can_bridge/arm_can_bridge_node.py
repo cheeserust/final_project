@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+import struct
 import threading
 import time
 from typing import Callable, Sequence
@@ -11,8 +12,10 @@ from control_msgs.action import FollowJointTrajectory
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.exceptions import ParameterUninitializedException
 from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -21,6 +24,7 @@ from .board3_feedback import Board3PositionFeedbackAssembler
 from .board_state import MultiBoardStateTracker
 from .can_protocol import (
     ALL_MOTORS,
+    angle_raw_to_rad,
     BOARD3_SERVO_COUNT,
     Board3FeedbackMotorStatus,
     BOARD_ID_ALL,
@@ -32,8 +36,10 @@ from .can_protocol import (
     BoardState,
     CAN_ID_BOARD3_POSITION_FEEDBACK,
     CanFrame,
-    CompactPositionFeedback,
     error_name_for_board,
+    MAX_DURATION_TICKS,
+    motor_count_for_board,
+    MotorPositionFeedback,
     pack_clear_error,
     pack_enable,
     pack_estop,
@@ -67,6 +73,8 @@ class TrajectoryControllerContext:
     board_ids: list[int]
     motor_ids: list[int]
     home_positions_rad: list[float]
+    raw_position_signs: list[float]
+    raw_position_offsets_rad: list[float]
     board_state: MultiBoardStateTracker
     commanded_state: CommandedStateEstimator
     trajectory_converter: ArmTrajectoryConverter
@@ -89,19 +97,67 @@ class ArmCanBridgeNode(Node):
         self._can_interface = str(
             self.get_parameter('can_interface').value
         )
+        self._execution_mode = str(
+            self.get_parameter('execution_mode').value
+        ).strip().lower()
+        if self._execution_mode not in {'plan_only', 'hardware'}:
+            raise ValueError(
+                'execution_mode must be plan_only or hardware'
+            )
         self._control_wait_timeout_s = (
             int(self.get_parameter('control_wait_timeout_ms').value)
             / 1000.0
         )
+        self._arm_enabled = bool(
+            self.get_parameter('enable_arm').value
+        )
         self._gripper_enabled = bool(
             self.get_parameter('enable_gripper').value
         )
+        self._packed_position_feedback_board_ids = (
+            self._configured_board_id_set(
+                'packed_position_feedback_board_ids'
+            )
+        )
+        if bool(self.get_parameter('board1_packed_position_feedback').value):
+            self._packed_position_feedback_board_ids.add(BOARD_ID_BOARD1)
+
+        self._axis_status_flags_board_ids = self._configured_board_id_set(
+            'axis_status_flags_board_ids'
+        )
+        self._ready_bits_from_fault_board_ids = self._configured_board_id_set(
+            'ready_bits_from_fault_board_ids'
+        )
+        if bool(self.get_parameter('board1_ready_bits_from_fault_bits').value):
+            self._ready_bits_from_fault_board_ids.add(BOARD_ID_BOARD1)
+
+        self._idle_moving_motor_id_board_ids = self._configured_board_id_set(
+            'idle_moving_motor_id_board_ids'
+        )
+        board1_idle_moving_motor_id = int(
+            self.get_parameter('board1_idle_moving_motor_id').value
+        )
+        if board1_idle_moving_motor_id != ALL_MOTORS:
+            self._idle_moving_motor_id_board_ids.add(BOARD_ID_BOARD1)
+        self._idle_moving_motor_id = int(
+            self.get_parameter('idle_moving_motor_id').value
+        )
+        if board1_idle_moving_motor_id != ALL_MOTORS:
+            self._idle_moving_motor_id = board1_idle_moving_motor_id
         self._board3_feedback = Board3PositionFeedbackAssembler()
         self._arm_feedback_lock = threading.RLock()
         self._arm_feedback_positions_rad: list[float | None] = []
         self._arm_feedback_joint_by_board_motor: dict[
             tuple[int, int],
             int,
+        ] = {}
+        self._arm_raw_position_sign_by_board_motor: dict[
+            tuple[int, int],
+            float,
+        ] = {}
+        self._arm_raw_position_offset_by_board_motor: dict[
+            tuple[int, int],
+            float,
         ] = {}
 
         self._status_publisher = self.create_publisher(
@@ -117,18 +173,22 @@ class ArmCanBridgeNode(Node):
             error_callback=self._handle_transport_error,
         )
 
-        self._arm_controller = self._create_controller_context(
-            label='arm',
-            action_name_param='arm_action_name',
-            joint_names_param='arm_joint_names',
-            board_ids_param='arm_board_ids',
-            motor_ids_param='arm_motor_ids',
-            min_positions_param='arm_min_positions_rad',
-            max_positions_param='arm_max_positions_rad',
-            home_positions_param='arm_home_positions_rad',
-        )
+        self._arm_controller = None
+        controllers = []
+        if self._arm_enabled:
+            self._arm_controller = self._create_controller_context(
+                label='arm',
+                action_name_param='arm_action_name',
+                joint_names_param='arm_joint_names',
+                board_ids_param='arm_board_ids',
+                motor_ids_param='arm_motor_ids',
+                min_positions_param='arm_min_positions_rad',
+                max_positions_param='arm_max_positions_rad',
+                home_positions_param='arm_home_positions_rad',
+            )
+            controllers.append(self._arm_controller)
+
         self._gripper_controller = None
-        controllers = [self._arm_controller]
         if self._gripper_enabled:
             self._gripper_controller = self._create_controller_context(
                 label='gripper',
@@ -141,7 +201,10 @@ class ArmCanBridgeNode(Node):
                 home_positions_param='gripper_home_positions_rad',
             )
             controllers.append(self._gripper_controller)
+        if not controllers:
+            raise ValueError('At least one of enable_arm or enable_gripper must be true')
         self._controllers = tuple(controllers)
+        self._configure_fixed_joint_states()
         self._validate_combined_joint_names()
         self._configure_arm_position_feedback()
         self._transport.open()
@@ -245,7 +308,8 @@ class ArmCanBridgeNode(Node):
             self._action_servers.append(controller.action_server)
 
         self.get_logger().info(
-            f'arm_can_bridge started on {self._can_interface}'
+            f'arm_can_bridge started on {self._can_interface}; '
+            f'execution_mode={self._execution_mode}'
         )
         self.get_logger().info(
             'Action servers ready: '
@@ -259,16 +323,25 @@ class ArmCanBridgeNode(Node):
             '/arm_board/home_all, /arm_board/clear_error, '
             '/arm_board/estop, /arm_board/status'
         )
+        if self._execution_mode == 'plan_only':
+            self.get_logger().warning(
+                'Plan-only mode: trajectory goals and state-changing arm '
+                'services are rejected; disable and ESTOP remain available'
+            )
 
     def _declare_parameters(self) -> None:
         self.declare_parameter('can_interface', 'vcan0')
+        self.declare_parameter('execution_mode', 'plan_only')
         self.declare_parameter('status_timeout_ms', 500)
         self.declare_parameter('queue_capacity', 32)
+        self.declare_parameter('board1_queue_capacity', 124)
+        self.declare_parameter('board2_queue_capacity', 127)
         self.declare_parameter('required_homing_mask', 0x0F)
         self.declare_parameter('control_wait_timeout_ms', 3000)
         self.declare_parameter('status_publish_period_ms', 500)
         self.declare_parameter('joint_states_topic', '/joint_states')
         self.declare_parameter('joint_state_rate_hz', 50.0)
+        self.declare_parameter('enable_arm', True)
         self.declare_parameter('enable_gripper', True)
         self.declare_parameter('arm_speed_raw', 0)
         self.declare_parameter('gripper_target_load_raw', 500)
@@ -276,51 +349,92 @@ class ArmCanBridgeNode(Node):
         self.declare_parameter('speed_raw', 0)
         self.declare_parameter('queue_wait_timeout_ms', 3000)
         self.declare_parameter('completion_grace_ms', 3000)
+        self.declare_parameter('arm_inter_frame_delay_ms', 3.0)
+        self.declare_parameter('board3_inter_frame_delay_ms', 3.0)
+        self.declare_parameter('arm_trajectory_point_duration_ticks', 4)
+        self.declare_parameter('arm_max_ahead_points', 4)
+        self.declare_parameter('disable_on_trajectory_error', False)
         self.declare_parameter('start_position_tolerance_rad', 0.02)
+        self.declare_parameter('packed_position_feedback_board_ids', [
+            BOARD_ID_BOARD1,
+            BOARD_ID_BOARD2,
+        ])
+        self.declare_parameter('axis_status_flags_board_ids', [
+            BOARD_ID_BOARD1,
+            BOARD_ID_BOARD2,
+        ])
+        self.declare_parameter('ready_bits_from_fault_board_ids', [0])
+        self.declare_parameter('idle_moving_motor_id_board_ids', [0])
+        self.declare_parameter('idle_moving_motor_id', ALL_MOTORS)
+        self.declare_parameter('board1_packed_position_feedback', False)
+        self.declare_parameter('board1_ready_bits_from_fault_bits', False)
+        self.declare_parameter('board1_idle_moving_motor_id', ALL_MOTORS)
 
         self.declare_parameter(
             'arm_action_name',
             '/arm_controller/follow_joint_trajectory',
         )
         self.declare_parameter('arm_joint_names', [
-            'base_joint',
             'arm_joint_1',
             'arm_joint_2',
             'arm_joint_3',
+            'base_joint',
             'arm_joint_4',
         ])
         self.declare_parameter(
             'arm_board_ids',
             [
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
+                BOARD_ID_BOARD1,
                 BOARD_ID_BOARD2,
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
-                BOARD_ID_BOARD1,
             ],
         )
-        self.declare_parameter('arm_motor_ids', [0, 0, 1, 2, 3])
+        self.declare_parameter('arm_motor_ids', [0, 1, 2, 3, 0])
         self.declare_parameter('arm_min_positions_rad', [
+            -1.48352986,
+            -1.36310215,
+            -1.59697627,
             -1.57079633,
             -1.57079633,
-            -1.39626340,
-            -1.57079633,
-            -2.96705973,
         ])
         self.declare_parameter('arm_max_positions_rad', [
-            3.14159265,
             1.57079633,
             1.39626340,
             1.57079633,
-            2.96705973,
+            3.14159265,
+            1.57079633,
         ])
         self.declare_parameter('arm_home_positions_rad', [
+            -1.50970980,
+            -1.36310215,
+            -1.59697627,
             -1.57079633,
             -1.57079633,
-            -1.39626340,
-            -1.57079633,
-            -2.96705973,
         ])
+        self.declare_parameter('arm_raw_position_signs', [
+            1,
+            1,
+            1,
+            1,
+            1,
+        ])
+        self.declare_parameter('arm_raw_position_offsets_rad', [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ])
+        self.declare_parameter(
+            'fixed_joint_state_names',
+            Parameter.Type.STRING_ARRAY,
+        )
+        self.declare_parameter(
+            'fixed_joint_state_positions_rad',
+            Parameter.Type.DOUBLE_ARRAY,
+        )
 
         self.declare_parameter(
             'gripper_action_name',
@@ -388,6 +502,28 @@ class ArmCanBridgeNode(Node):
             0.0,
             0.0,
         ])
+        self.declare_parameter('gripper_raw_position_signs', [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ])
+        self.declare_parameter('gripper_raw_position_offsets_rad', [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ])
 
     def _create_controller_context(
         self,
@@ -416,6 +552,14 @@ class ArmCanBridgeNode(Node):
             home_positions_param,
             float,
         )
+        raw_position_signs = self._raw_position_signs_for_controller(
+            label,
+            len(joint_names),
+        )
+        raw_position_offsets_rad = self._raw_position_offsets_for_controller(
+            label,
+            len(joint_names),
+        )
 
         self._validate_controller_lengths(
             label=label,
@@ -425,6 +569,8 @@ class ArmCanBridgeNode(Node):
             min_positions_rad=min_positions_rad,
             max_positions_rad=max_positions_rad,
             home_positions_rad=home_positions_rad,
+            raw_position_signs=raw_position_signs,
+            raw_position_offsets_rad=raw_position_offsets_rad,
         )
 
         board_state = self._create_board_state(board_ids)
@@ -442,6 +588,17 @@ class ArmCanBridgeNode(Node):
             start_position_tolerance_rad=float(
                 self.get_parameter('start_position_tolerance_rad').value
             ),
+            raw_position_signs=raw_position_signs,
+            raw_position_offsets_rad=raw_position_offsets_rad,
+            max_segment_duration_ticks=(
+                int(
+                    self.get_parameter(
+                        'arm_trajectory_point_duration_ticks'
+                    ).value
+                )
+                if label == 'arm'
+                else MAX_DURATION_TICKS
+            ),
         )
         trajectory_streamer = TrajectoryStreamer(
             board_state=board_state,
@@ -452,6 +609,17 @@ class ArmCanBridgeNode(Node):
             completion_grace_ms=int(
                 self.get_parameter('completion_grace_ms').value
             ),
+            arm_inter_frame_delay_ms=float(
+                self.get_parameter('arm_inter_frame_delay_ms').value
+            ),
+            board3_inter_frame_delay_ms=float(
+                self.get_parameter('board3_inter_frame_delay_ms').value
+            ),
+            max_in_flight_batches=(
+                int(self.get_parameter('arm_max_ahead_points').value)
+                if label == 'arm'
+                else 0
+            ),
         )
 
         return TrajectoryControllerContext(
@@ -461,6 +629,8 @@ class ArmCanBridgeNode(Node):
             board_ids=board_ids,
             motor_ids=motor_ids,
             home_positions_rad=home_positions_rad,
+            raw_position_signs=raw_position_signs,
+            raw_position_offsets_rad=raw_position_offsets_rad,
             board_state=board_state,
             commanded_state=commanded_state,
             trajectory_converter=trajectory_converter,
@@ -489,6 +659,28 @@ class ArmCanBridgeNode(Node):
             ),
         }
 
+    def _raw_position_signs_for_controller(
+        self,
+        label: str,
+        count: int,
+    ) -> list[float]:
+        del count
+        return self._list_parameter(
+            f'{label}_raw_position_signs',
+            float,
+        )
+
+    def _raw_position_offsets_for_controller(
+        self,
+        label: str,
+        count: int,
+    ) -> list[float]:
+        del count
+        return self._list_parameter(
+            f'{label}_raw_position_offsets_rad',
+            float,
+        )
+
     def _create_board_state(
         self,
         board_ids: Sequence[int],
@@ -497,6 +689,12 @@ class ArmCanBridgeNode(Node):
             dict.fromkeys(int(value) for value in board_ids)
         )
         queue_capacity = int(self.get_parameter('queue_capacity').value)
+        board1_queue_capacity = int(
+            self.get_parameter('board1_queue_capacity').value
+        )
+        board2_queue_capacity = int(
+            self.get_parameter('board2_queue_capacity').value
+        )
 
         return MultiBoardStateTracker(
             board_ids=unique_board_ids,
@@ -507,6 +705,10 @@ class ArmCanBridgeNode(Node):
                 board_id: (
                     BOARD3_SERVO_COUNT
                     if board_id == BOARD_ID_BOARD3
+                    else board1_queue_capacity
+                    if board_id == BOARD_ID_BOARD1
+                    else board2_queue_capacity
+                    if board_id == BOARD_ID_BOARD2
                     else queue_capacity
                 )
                 for board_id in unique_board_ids
@@ -529,6 +731,8 @@ class ArmCanBridgeNode(Node):
         min_positions_rad: Sequence[float],
         max_positions_rad: Sequence[float],
         home_positions_rad: Sequence[float],
+        raw_position_signs: Sequence[float],
+        raw_position_offsets_rad: Sequence[float],
     ) -> None:
         count = len(joint_names)
 
@@ -538,11 +742,19 @@ class ArmCanBridgeNode(Node):
             ('min_positions_rad', min_positions_rad),
             ('max_positions_rad', max_positions_rad),
             ('home_positions_rad', home_positions_rad),
+            ('raw_position_signs', raw_position_signs),
+            ('raw_position_offsets_rad', raw_position_offsets_rad),
         ):
             if len(values) != count:
                 raise ValueError(
                     f'{label}_{field_name} length must match '
                     f'{label}_joint_names length'
+                )
+
+        for index, sign in enumerate(raw_position_signs):
+            if float(sign) not in (-1.0, 1.0):
+                raise ValueError(
+                    f'{label}_raw_position_signs[{index}] must be -1 or 1'
                 )
 
     def _validate_combined_joint_names(self) -> None:
@@ -551,14 +763,44 @@ class ArmCanBridgeNode(Node):
             for controller in self._controllers
             for name in controller.joint_names
         ]
+        all_joint_names.extend(self._fixed_joint_state_names)
 
         if len(set(all_joint_names)) != len(all_joint_names):
             raise ValueError(
-                'Arm and gripper joint names must not overlap'
+                'Controller and fixed joint state names must not overlap'
             )
 
+    def _configure_fixed_joint_states(self) -> None:
+        names = self._optional_list_parameter(
+            'fixed_joint_state_names',
+            str,
+        )
+        positions = self._optional_list_parameter(
+            'fixed_joint_state_positions_rad',
+            float,
+        )
+
+        if len(names) != len(positions):
+            raise ValueError(
+                'fixed_joint_state_positions_rad length must match '
+                'fixed_joint_state_names length'
+            )
+
+        self._fixed_joint_state_names = names
+        self._fixed_joint_state_positions_rad = positions
+
     def _configure_arm_position_feedback(self) -> None:
+        if self._arm_controller is None:
+            with self._arm_feedback_lock:
+                self._arm_feedback_positions_rad = []
+                self._arm_feedback_joint_by_board_motor = {}
+                self._arm_raw_position_sign_by_board_motor = {}
+                self._arm_raw_position_offset_by_board_motor = {}
+            return
+
         mapping = {}
+        signs = {}
+        offsets = {}
         for joint_index, (board_id, motor_id) in enumerate(
             zip(
                 self._arm_controller.board_ids,
@@ -566,7 +808,14 @@ class ArmCanBridgeNode(Node):
             )
         ):
             if board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
-                mapping[(int(board_id), int(motor_id))] = joint_index
+                key = (int(board_id), int(motor_id))
+                mapping[key] = joint_index
+                signs[key] = float(
+                    self._arm_controller.raw_position_signs[joint_index]
+                )
+                offsets[key] = float(
+                    self._arm_controller.raw_position_offsets_rad[joint_index]
+                )
 
         with self._arm_feedback_lock:
             self._arm_feedback_positions_rad = [
@@ -574,6 +823,8 @@ class ArmCanBridgeNode(Node):
                 for _ in self._arm_controller.joint_names
             ]
             self._arm_feedback_joint_by_board_motor = mapping
+            self._arm_raw_position_sign_by_board_motor = signs
+            self._arm_raw_position_offset_by_board_motor = offsets
 
     def _list_parameter(
         self,
@@ -583,11 +834,35 @@ class ArmCanBridgeNode(Node):
         value = self.get_parameter(name).value
         return [cast(item) for item in value]
 
+    def _optional_list_parameter(
+        self,
+        name: str,
+        cast: Callable,
+    ) -> list:
+        try:
+            value = self.get_parameter(name).value
+        except ParameterUninitializedException:
+            return []
+
+        if value is None:
+            return []
+
+        return [cast(item) for item in value]
+
+    def _configured_board_id_set(self, name: str) -> set[int]:
+        return {
+            int(board_id)
+            for board_id in self._list_parameter(name, int)
+            if int(board_id) > 0
+        }
+
     def _handle_can_frame(self, frame: CanFrame) -> None:
         position_board_id = BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID.get(
             frame.can_id
         )
         if position_board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
+            if self._arm_controller is None:
+                return
             self._handle_motor_position_feedback(frame, position_board_id)
             return
 
@@ -605,6 +880,7 @@ class ArmCanBridgeNode(Node):
 
         try:
             status = unpack_status(frame.data, board_id=board_id)
+            status = self._normalize_board_status(status)
             for controller in self._controllers:
                 controller.board_state.update_status(status)
         except (ValueError, TypeError) as exc:
@@ -612,27 +888,182 @@ class ArmCanBridgeNode(Node):
                 f'Failed to decode board {board_id} status: {exc}'
             )
 
+    def _normalize_board_status(self, status):
+        if status.board_id not in (
+            BOARD_ID_BOARD1,
+            BOARD_ID_BOARD2,
+        ):
+            return status
+
+        homing_done_bits = status.homing_done_bits
+        limit_status_bits = status.limit_status_bits
+        moving_motor_id = status.moving_motor_id
+
+        if status.board_id in self._axis_status_flags_board_ids:
+            return self._normalize_axis_status_flags(status)
+
+        if status.board_id in self._ready_bits_from_fault_board_ids:
+            homing_done_bits = status.limit_status_bits
+            limit_status_bits = 0
+
+        if (
+            status.board_id in self._idle_moving_motor_id_board_ids
+            and moving_motor_id == self._idle_moving_motor_id
+        ):
+            moving_motor_id = ALL_MOTORS
+
+        if (
+            homing_done_bits == status.homing_done_bits
+            and limit_status_bits == status.limit_status_bits
+            and moving_motor_id == status.moving_motor_id
+        ):
+            return status
+
+        return replace(
+            status,
+            homing_done_bits=homing_done_bits,
+            limit_status_bits=limit_status_bits,
+            moving_motor_id=moving_motor_id,
+        )
+
+    @staticmethod
+    def _normalize_axis_status_flags(status):
+        axis_flags = (
+            status.homing_done_bits & 0x0F,
+            (status.homing_done_bits >> 4) & 0x0F,
+            status.moving_motor_id & 0x0F,
+            (status.moving_motor_id >> 4) & 0x0F,
+        )
+        motor_count = motor_count_for_board(status.board_id)
+
+        homing_done_bits = 0
+        moving_motor_id = ALL_MOTORS
+        for motor_id, flags in enumerate(axis_flags[:motor_count]):
+            if flags & 0x01:
+                homing_done_bits |= 1 << motor_id
+            if moving_motor_id == ALL_MOTORS and flags & 0x04:
+                moving_motor_id = motor_id
+
+        return replace(
+            status,
+            homing_done_bits=homing_done_bits,
+            moving_motor_id=moving_motor_id,
+            limit_status_bits=0,
+        )
+
     def _handle_motor_position_feedback(
         self,
         frame: CanFrame,
         board_id: int,
     ) -> None:
         try:
+            if (
+                board_id in self._packed_position_feedback_board_ids
+            ):
+                self._handle_packed_motor_position_feedback(frame, board_id)
+                return
+
             feedback = unpack_motor_position_feedback(
                 frame.data,
                 board_id=board_id,
             )
+            feedback = self._transform_arm_position_feedback(feedback)
+
+            if not feedback.position_valid:
+                return
+
             self._apply_arm_position_feedback(feedback)
+
+            if feedback.error_code:
+                self.get_logger().warning(
+                    'Motor position feedback reports error: '
+                    f'board={feedback.board_id}, '
+                    f'motor={feedback.motor_id}, '
+                    f'error={feedback.error_code}, '
+                    f'flags=0x{feedback.flags:02X}, '
+                    f'seq={feedback.sequence}'
+                )
         except (ValueError, TypeError, IndexError) as exc:
             self.get_logger().error(
                 f'Failed to decode board {board_id} position feedback: {exc}'
             )
 
+    def _handle_packed_motor_position_feedback(
+        self,
+        frame: CanFrame,
+        board_id: int,
+    ) -> None:
+        if len(frame.data) != 8:
+            raise ValueError(
+                'Packed motor position feedback must contain 8 bytes'
+            )
+
+        positions_raw = struct.unpack('<hhhh', frame.data)
+        for motor_id in range(motor_count_for_board(board_id)):
+            position_raw = positions_raw[motor_id]
+            position_rad = self._arm_position_rad_from_raw(
+                board_id=board_id,
+                motor_id=motor_id,
+                position_raw=position_raw,
+            )
+            self._apply_arm_position_feedback(
+                MotorPositionFeedback(
+                    board_id=board_id,
+                    motor_id=motor_id,
+                    flags=0x03,
+                    position_raw=int(position_raw),
+                    position_rad=position_rad,
+                    error_code=0,
+                    sequence=0,
+                )
+            )
+
+    def _transform_arm_position_feedback(
+        self,
+        feedback: MotorPositionFeedback,
+    ) -> MotorPositionFeedback:
+        return replace(
+            feedback,
+            position_rad=self._arm_position_rad_from_raw(
+                board_id=feedback.board_id,
+                motor_id=feedback.motor_id,
+                position_raw=feedback.position_raw,
+            ),
+        )
+
+    def _arm_position_rad_from_raw(
+        self,
+        *,
+        board_id: int,
+        motor_id: int,
+        position_raw: int,
+    ) -> float:
+        key = (int(board_id), int(motor_id))
+        raw_position_rad = angle_raw_to_rad(position_raw)
+
+        with self._arm_feedback_lock:
+            sign = self._arm_raw_position_sign_by_board_motor.get(key, 1.0)
+            offset = self._arm_raw_position_offset_by_board_motor.get(
+                key,
+                0.0,
+            )
+
+        return (raw_position_rad - offset) / sign
+
     def _apply_arm_position_feedback(
         self,
-        feedback: CompactPositionFeedback,
+        feedback: MotorPositionFeedback,
     ) -> None:
+        if self._arm_controller is None:
+            return
+
+        key = (feedback.board_id, feedback.motor_id)
+
         with self._arm_feedback_lock:
+            joint_index = self._arm_feedback_joint_by_board_motor.get(key)
+            if joint_index is None:
+                return
+
             positions = list(self._arm_feedback_positions_rad)
             if any(value is None for value in positions):
                 if self._arm_controller.commanded_state.is_valid():
@@ -640,17 +1071,7 @@ class ArmCanBridgeNode(Node):
                         self._arm_controller.commanded_state.positions()
                     )
 
-            for motor_id, position_rad in zip(
-                feedback.motor_ids,
-                feedback.positions_rad,
-            ):
-                joint_index = self._arm_feedback_joint_by_board_motor.get(
-                    (feedback.board_id, motor_id)
-                )
-                if joint_index is None:
-                    continue
-                positions[joint_index] = position_rad
-
+            positions[joint_index] = feedback.position_rad
             self._arm_feedback_positions_rad = positions
 
             if any(value is None for value in positions):
@@ -700,14 +1121,19 @@ class ArmCanBridgeNode(Node):
 
         joint_positions = []
 
-        for board_id, motor_id in zip(
+        for joint_index, (board_id, motor_id) in enumerate(zip(
             self._gripper_controller.board_ids,
             self._gripper_controller.motor_ids,
-        ):
+        )):
             if board_id != BOARD_ID_BOARD3:
                 return
 
-            joint_positions.append(positions_by_motor_rad[int(motor_id)])
+            raw_position_rad = positions_by_motor_rad[int(motor_id)]
+            sign = self._gripper_controller.raw_position_signs[joint_index]
+            offset = self._gripper_controller.raw_position_offsets_rad[
+                joint_index
+            ]
+            joint_positions.append((raw_position_rad - offset) / sign)
 
         self._gripper_controller.commanded_state.mark_positions_valid(
             joint_positions
@@ -754,12 +1180,29 @@ class ArmCanBridgeNode(Node):
             return False
         return True
 
+    def _reject_unless_hardware(
+        self,
+        response: Trigger.Response,
+        operation: str,
+    ) -> bool:
+        if self._execution_mode == 'hardware':
+            return False
+        response.success = False
+        response.message = (
+            f'{operation} rejected: execution_mode=plan_only'
+        )
+        self.get_logger().warning(response.message)
+        return True
+
     def _handle_enable(
         self,
         request: Trigger.Request,
         response: Trigger.Response,
     ) -> Trigger.Response:
         del request
+
+        if self._reject_unless_hardware(response, 'Enable'):
+            return response
 
         if not self._send_or_fail(
             pack_enable(True, board_id=BOARD_ID_ALL),
@@ -820,6 +1263,9 @@ class ArmCanBridgeNode(Node):
     ) -> Trigger.Response:
         del request
 
+        if self._reject_unless_hardware(response, 'Homing'):
+            return response
+
         if not self._all_board_states_enabled():
             response.success = False
             response.message = self._format_status(
@@ -827,15 +1273,16 @@ class ArmCanBridgeNode(Node):
             )
             return response
 
-        if not self._send_or_fail(
-            pack_homing(
-                ALL_MOTORS,
-                0,
-                board_id=BOARD_ID_ALL,
-            ),
-            response,
-        ):
-            return response
+        if self._arm_controller is not None:
+            if not self._send_or_fail(
+                pack_homing(
+                    ALL_MOTORS,
+                    0,
+                    board_id=BOARD_ID_ALL,
+                ),
+                response,
+            ):
+                return response
 
         if self._gripper_enabled:
             if not self._send_or_fail(
@@ -871,6 +1318,9 @@ class ArmCanBridgeNode(Node):
         response: Trigger.Response,
     ) -> Trigger.Response:
         del request
+
+        if self._reject_unless_hardware(response, 'Clear error'):
+            return response
 
         if not self._send_or_fail(
             pack_clear_error(
@@ -941,6 +1391,13 @@ class ArmCanBridgeNode(Node):
         goal_request,
         controller: TrajectoryControllerContext,
     ):
+        if self._execution_mode != 'hardware':
+            self.get_logger().warning(
+                f'Reject {controller.label} trajectory: '
+                'execution_mode=plan_only'
+            )
+            return GoalResponse.REJECT
+
         with controller.lock:
             if controller.active:
                 self.get_logger().warning(
@@ -1057,7 +1514,6 @@ class ArmCanBridgeNode(Node):
             )
 
             if goal_handle.is_cancel_requested:
-                controller.trajectory_streamer.stop_by_disable()
                 self._invalidate_all_commanded_positions()
 
                 goal_handle.canceled()
@@ -1075,14 +1531,6 @@ class ArmCanBridgeNode(Node):
                 f'{controller.label} trajectory execution canceled: {exc}'
             )
 
-            try:
-                controller.trajectory_streamer.stop_by_disable()
-            except Exception as disable_exc:
-                self.get_logger().error(
-                    f'Failed to disable after trajectory cancel: '
-                    f'{disable_exc}'
-                )
-
             self._invalidate_all_commanded_positions()
 
             goal_handle.canceled()
@@ -1091,17 +1539,16 @@ class ArmCanBridgeNode(Node):
             return result
 
         except TrajectoryStreamingError as exc:
+            status_snapshot = self._format_status('failure')
             self.get_logger().error(
-                f'{controller.label} trajectory execution failed: {exc}'
+                f'{controller.label} trajectory execution failed: {exc}; '
+                f'{status_snapshot}'
             )
 
-            try:
-                controller.trajectory_streamer.stop_by_disable()
-            except Exception as disable_exc:
-                self.get_logger().error(
-                    f'Failed to disable after trajectory error: '
-                    f'{disable_exc}'
-                )
+            self.get_logger().warning(
+                'Leaving motor enable unchanged after trajectory error; '
+                'use /arm_board/disable or ESTOP only if needed'
+            )
 
             self._invalidate_all_commanded_positions()
 
@@ -1109,7 +1556,7 @@ class ArmCanBridgeNode(Node):
             result.error_code = (
                 FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
             )
-            result.error_string = str(exc)
+            result.error_string = f'{exc}; {status_snapshot}'
             return result
 
         except Exception as exc:
@@ -1143,9 +1590,15 @@ class ArmCanBridgeNode(Node):
             controller.commanded_state.mark_positions_valid(
                 controller.home_positions_rad
             )
-        self._mark_arm_feedback_positions(self._arm_controller.home_positions_rad)
+        if self._arm_controller is not None:
+            self._mark_arm_feedback_positions(
+                self._arm_controller.home_positions_rad
+            )
 
     def _reset_arm_position_feedback(self) -> None:
+        if self._arm_controller is None:
+            return
+
         with self._arm_feedback_lock:
             self._arm_feedback_positions_rad = [
                 None
@@ -1240,6 +1693,9 @@ class ArmCanBridgeNode(Node):
             msg.name.extend(controller.joint_names)
             msg.position.extend(controller.commanded_state.positions())
 
+        msg.name.extend(self._fixed_joint_state_names)
+        msg.position.extend(self._fixed_joint_state_positions_rad)
+
         self._joint_state_publisher.publish(msg)
 
     def _format_status(self, prefix: str) -> str:
@@ -1259,27 +1715,13 @@ class ArmCanBridgeNode(Node):
                     )
                     continue
 
-                if status.board_id == BOARD_ID_BOARD3:
-                    status_detail = (
-                        f'ready=0x{status.homing_done_bits:02X}, '
-                        f'moving={status.moving_motor_id}, '
-                    )
-                else:
-                    flags = ','.join(
-                        f'{value:X}'
-                        for value in status.axis_flags
-                    )
-                    status_detail = (
-                        f'axis_flags=[{flags}], '
-                        f'seq={status.status_sequence}, '
-                    )
-
                 board_parts.append(
                     f'board{board_id}: '
                     f'state={self._state_name(status.state)}, '
                     f'error='
                     f'{self._error_name(status.error_code, status.board_id)}, '
-                    f'{status_detail}'
+                    f'ready=0x{status.homing_done_bits:02X}, '
+                    f'moving={status.moving_motor_id}, '
                     f'fault=0x{status.limit_status_bits:02X}, '
                     f'queue_free={status.queue_free}, '
                     f'local_queue_free={board_snapshot.local_queue_free}, '
@@ -1291,11 +1733,15 @@ class ArmCanBridgeNode(Node):
                     f'{board_snapshot.commanded_position_valid}'
                 )
 
+            can_accept = (
+                self._execution_mode == 'hardware'
+                and controller.board_state.can_accept_new_trajectory()
+            )
             controller_parts.append(
                 f'{controller.label}['
                 + '; '.join(board_parts)
                 + f'; accept_traj='
-                f'{controller.board_state.can_accept_new_trajectory()}'
+                f'{can_accept}'
                 + ']'
             )
 

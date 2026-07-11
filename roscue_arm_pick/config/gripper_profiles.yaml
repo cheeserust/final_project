@@ -1,0 +1,56 @@
+objects:
+  object_1:
+    marker_id: 54
+    name: "doll"
+    approach_type: "top_down"
+    gripper_close_rad:
+      - 0.0000
+      - -1.7453
+      - -1.2217
+      - 0.0000
+      - -1.7453
+      - -1.2217
+      - 0.0000
+      - -1.7453
+      - -1.2217
+    gripper_effort: 500
+
+  object_2:
+    marker_id: 55
+    name: "cup"
+    approach_type: "front"
+    gripper_close_rad:
+      - -1.0472
+      - -2.0944
+      - -0.9599
+      - 0.5236
+      - -2.0944
+      - -0.4363
+      - -0.5236
+      - -2.0944
+      - -0.6981
+    gripper_effort: 500
+
+gripper_open_rad:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+
+buttons:
+  press_pose_rad:
+    - 0.0
+    - -1.2
+    - 1.2
+    - 0.0
+    - -1.2
+    - 1.2
+    - 0.0
+    - -1.2
+    - 1.2
+  gripper_effort: 500

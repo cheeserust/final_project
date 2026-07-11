@@ -15,22 +15,12 @@ from arm_can_bridge.can_protocol import (
 import pytest
 
 
-def compact_status_bytes(axis_flags):
-    """Pack up to four compact axis flag nibbles into status bytes 2 and 3."""
-    padded = list(axis_flags) + [0, 0, 0, 0]
-    return (
-        (padded[0] & 0x0F) | ((padded[1] & 0x0F) << 4),
-        (padded[2] & 0x0F) | ((padded[3] & 0x0F) << 4),
-    )
-
-
 def make_status(
     *,
     state=BoardState.IDLE,
     error_code=BoardError.NONE,
-    homing_done_bits=None,
-    moving_motor_id=None,
-    axis_flags=None,
+    homing_done_bits=0x0F,
+    moving_motor_id=ALL_MOTORS,
     limit_status_bits=0,
     queue_free=32,
     enabled=True,
@@ -38,21 +28,6 @@ def make_status(
     reserved=0,
 ) -> BoardStatus:
     """Create one BoardStatus with safe defaults."""
-    if board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
-        if axis_flags is None:
-            axis_count = 4 if board_id == BOARD_ID_BOARD1 else 1
-            axis_flags = [0x0B] * axis_count
-        compact_byte2, compact_byte3 = compact_status_bytes(axis_flags)
-        if homing_done_bits is None:
-            homing_done_bits = compact_byte2
-        if moving_motor_id is None:
-            moving_motor_id = compact_byte3
-    else:
-        if homing_done_bits is None:
-            homing_done_bits = 1
-        if moving_motor_id is None:
-            moving_motor_id = 0
-
     return BoardStatus(
         state=int(state),
         error_code=int(error_code),
@@ -111,7 +86,7 @@ def test_moving_board_can_stream_but_cannot_accept_new_goal():
     tracker.update_status(
         make_status(
             state=BoardState.MOVING,
-            axis_flags=[0x07, 0x07, 0x07, 0x07],
+            moving_motor_id=0,
             queue_free=12,
         ),
         received_at=20.0,
@@ -131,7 +106,7 @@ def test_error_estop_disabled_or_unhomed_blocks_motion():
         ),
         make_status(state=BoardState.ESTOP),
         make_status(enabled=False),
-        make_status(axis_flags=[0x0B, 0x0B, 0x0B, 0x00]),
+        make_status(homing_done_bits=0x07),
     ]
 
     for status in cases:
@@ -159,6 +134,43 @@ def test_reserve_queue_slots_decrements_local_credit():
 
     assert tracker.reserve_queue_slots(4, now=40.1) is False
     assert tracker.available_queue_slots() == 0
+
+
+def test_reserve_queue_slots_honors_in_flight_limit():
+    tracker = BoardStateTracker(
+        status_timeout_ms=500,
+        queue_capacity=124,
+    )
+    tracker.update_status(
+        make_status(queue_free=124),
+        received_at=45.0,
+    )
+    tracker.mark_commanded_position_valid()
+
+    for _ in range(4):
+        assert tracker.reserve_queue_slots(
+            4,
+            max_in_flight_slots=16,
+            now=45.1,
+        ) is True
+
+    assert tracker.available_queue_slots() == 108
+    assert tracker.reserve_queue_slots(
+        4,
+        max_in_flight_slots=16,
+        now=45.1,
+    ) is False
+
+    tracker.update_status(
+        make_status(queue_free=112),
+        received_at=45.2,
+    )
+
+    assert tracker.reserve_queue_slots(
+        4,
+        max_in_flight_slots=16,
+        now=45.3,
+    ) is True
 
 
 def test_new_status_refreshes_local_queue_credit():
@@ -220,7 +232,7 @@ def test_completion_requires_idle_empty_enabled_homed_status():
     assert tracker.is_trajectory_complete(now=80.3) is False
 
     tracker.update_status(
-        make_status(axis_flags=[0x0B, 0x0B, 0x07, 0x0B]),
+        make_status(moving_motor_id=2),
         received_at=80.4,
     )
     assert tracker.is_trajectory_complete(now=80.5) is False
@@ -247,6 +259,22 @@ def test_board3_completion_uses_staging_status_fields():
     tracker.mark_commanded_position_valid()
 
     assert tracker.is_trajectory_complete(now=85.1) is True
+
+    tracker.update_status(
+        make_status(
+            board_id=BOARD_ID_BOARD3,
+            state=BoardState.CONTACT_HOLD,
+            homing_done_bits=1,
+            moving_motor_id=0,
+            queue_free=BOARD3_SERVO_COUNT,
+            reserved=ALL_MOTORS,
+        ),
+        received_at=85.12,
+    )
+
+    assert tracker.can_accept_new_trajectory(now=85.13) is True
+    assert tracker.can_stream_slots(BOARD3_SERVO_COUNT, now=85.13) is True
+    assert tracker.is_trajectory_complete(now=85.13) is True
 
     tracker.update_status(
         make_status(
@@ -298,11 +326,11 @@ def test_multi_board_tracker_requires_all_boards_ready():
     )
 
     tracker.update_status(
-        make_status(board_id=BOARD_ID_BOARD1),
+        make_status(board_id=BOARD_ID_BOARD1, homing_done_bits=0x0F),
         received_at=100.0,
     )
     tracker.update_status(
-        make_status(board_id=BOARD_ID_BOARD2),
+        make_status(board_id=BOARD_ID_BOARD2, homing_done_bits=0x01),
         received_at=100.0,
     )
     tracker.mark_commanded_position_valid()
@@ -322,7 +350,7 @@ def test_multi_board_tracker_requires_all_boards_ready():
     tracker.update_status(
         make_status(
             board_id=BOARD_ID_BOARD2,
-            axis_flags=[0x00],
+            homing_done_bits=0x00,
         ),
         received_at=100.2,
     )

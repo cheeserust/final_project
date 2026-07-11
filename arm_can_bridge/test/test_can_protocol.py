@@ -5,8 +5,10 @@ import math
 from arm_can_bridge.can_protocol import (
     ALL_MOTORS,
     angle_raw_to_rad,
+    BOARD3_SERVO_COUNT,
     BOARD3_TARGET_LOAD_MAX,
     Board3FeedbackMotorStatus,
+    BOARD_ID_BOARD3,
     BoardError,
     BoardState,
     build_control_byte,
@@ -25,7 +27,6 @@ from arm_can_bridge.can_protocol import (
     unpack_motor_position_feedback,
     unpack_status,
 )
-
 import pytest
 
 
@@ -78,57 +79,47 @@ def test_board3_position_feedback_rejects_bad_payload():
         unpack_board3_position_feedback(bytes([4, 0, 0, 0, 0, 0, 0, 0]))
 
 
-def test_board1_compact_position_feedback_unpack_uses_int16_slots():
+def test_motor_position_feedback_unpack_uses_int32_angle():
     data = bytes([
-        0xB8,
-        0x0B,
+        0x02,
+        0x0F,
         0xF2,
         0xF9,
+        0xFF,
+        0xFF,
         0x00,
-        0x00,
-        0x68,
-        0x42,
+        0x2A,
     ])
 
     feedback = unpack_motor_position_feedback(data, board_id=1)
 
     assert feedback.board_id == 1
-    assert feedback.motor_ids == (0, 1, 2, 3)
-    assert feedback.positions_raw == (3000, -1550, 0, 17000)
-    assert math.isclose(feedback.positions_rad[0], math.pi / 6.0)
-    assert math.isclose(feedback.positions_rad[1], angle_raw_to_rad(-1550))
-    assert feedback.reserved_raw == ()
-
-
-def test_board2_compact_position_feedback_ignores_reserved_slots():
-    data = bytes([
-        0xB8,
-        0x0B,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-    ])
-
-    feedback = unpack_motor_position_feedback(data, board_id=2)
-
-    assert feedback.board_id == 2
-    assert feedback.motor_ids == (0,)
-    assert feedback.positions_raw == (3000,)
-    assert math.isclose(feedback.positions_rad[0], math.pi / 6.0)
-    assert feedback.reserved_raw == (0, 0, 0)
+    assert feedback.motor_id == 2
+    assert feedback.flags == 0x0F
+    assert feedback.position_raw == -1550
+    assert math.isclose(feedback.position_rad, angle_raw_to_rad(-1550))
+    assert feedback.error_code == 0
+    assert feedback.sequence == 0x2A
+    assert feedback.position_valid is True
+    assert feedback.homed is True
+    assert feedback.moving is True
+    assert feedback.target_reached is True
 
 
 def test_motor_position_feedback_rejects_bad_payload():
     with pytest.raises(ValueError, match='8 bytes'):
         unpack_motor_position_feedback(bytes(7), board_id=1)
 
-    with pytest.raises(ValueError, match='Board3'):
+    with pytest.raises(ValueError, match='invalid for board'):
         unpack_motor_position_feedback(
-            bytes(8),
-            board_id=3,
+            bytes([4, 1, 0, 0, 0, 0, 0, 0]),
+            board_id=1,
+        )
+
+    with pytest.raises(ValueError, match='reserved flag'):
+        unpack_motor_position_feedback(
+            bytes([0, 0x10, 0, 0, 0, 0, 0, 0]),
+            board_id=2,
         )
 
 
@@ -294,49 +285,41 @@ def test_status_unpack_and_ready_properties():
     raw = bytes([
         BoardState.IDLE,
         BoardError.NONE,
-        0xBB,
-        0xBB,
+        0x0F,
+        ALL_MOTORS,
         0x00,
         32,
         1,
-        0x34,
+        0,
     ])
 
     status = unpack_status(raw)
 
     assert status.state == BoardState.IDLE
     assert status.error_code == BoardError.NONE
-    assert status.axis_flags == (0x0B, 0x0B, 0x0B, 0x0B)
-    assert status.axis_homed_mask == 0x0F
-    assert status.axis_ready_mask == 0x0F
-    assert status.axis_target_reached_mask == 0x0F
-    assert status.status_sequence == 0x34
     assert status.all_required_axes_homed is True
-    assert status.all_required_axes_ready is True
     assert status.healthy is True
     assert status.prepared_for_trajectory is True
     assert status.trajectory_complete is True
 
 
-def test_board2_compact_status_unpack_uses_axis0_flags():
+def test_board3_contact_hold_is_ready_and_complete():
     raw = bytes([
-        BoardState.IDLE,
+        BoardState.CONTACT_HOLD,
         BoardError.NONE,
-        0x0B,
+        0x01,
+        0,
         0x00,
-        0x00,
-        32,
+        BOARD3_SERVO_COUNT,
         1,
-        0x35,
+        ALL_MOTORS,
     ])
 
-    status = unpack_status(raw, board_id=2)
+    status = unpack_status(raw, board_id=BOARD_ID_BOARD3)
 
-    assert status.axis_flags == (0x0B,)
-    assert status.axis_homed_mask == 0x01
-    assert status.axis_ready_mask == 0x01
-    assert status.axis_target_reached_mask == 0x01
-    assert status.status_sequence == 0x35
+    assert status.state == BoardState.CONTACT_HOLD
+    assert status.healthy is True
+    assert status.prepared_for_trajectory is True
     assert status.trajectory_complete is True
 
 
@@ -344,8 +327,8 @@ def test_error_status_is_not_ready():
     raw = bytes([
         BoardState.ERROR,
         BoardError.QUEUE_FULL,
-        0xBB,
-        0xBB,
+        0x0F,
+        ALL_MOTORS,
         0x00,
         0,
         1,
