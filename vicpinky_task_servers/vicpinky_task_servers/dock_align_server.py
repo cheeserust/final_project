@@ -25,7 +25,7 @@ class DockAlignServer(Node):
         self.declare_parameter('distance_topic', '/tag/target_distance')
         self.declare_parameter('marker_id_topic', '/tag/marker_id')
 
-        self.declare_parameter('target_distance_m', 1.45)
+        self.declare_parameter('target_distance_m', 1.37)
         self.declare_parameter('target_lateral_m', 0.0)
 
         self.declare_parameter('x_tolerance_m', 0.07)
@@ -100,11 +100,11 @@ class DockAlignServer(Node):
 
     def offset_callback(self, msg):
         self.latest_offset_x = float(msg.data)
-        self.latest_marker_time = time.time()
+        self.latest_marker_time = time.monotonic()
 
     def distance_callback(self, msg):
         self.latest_distance = float(msg.data)
-        self.latest_marker_time = time.time()
+        self.latest_marker_time = time.monotonic()
 
     def marker_id_callback(self, msg):
         self.latest_marker_id = int(msg.data)
@@ -125,7 +125,7 @@ class DockAlignServer(Node):
         return (
             self.latest_offset_x is not None
             and self.latest_distance is not None
-            and time.time() - self.latest_marker_time <= self.marker_timeout_sec
+            and time.monotonic() - self.latest_marker_time <= self.marker_timeout_sec
         )
 
     async def execute_callback(self, goal_handle):
@@ -139,6 +139,8 @@ class DockAlignServer(Node):
             if goal.extra_json:
                 extra = json.loads(goal.extra_json)
                 target_distance_m = float(extra.get('target_distance_m', target_distance_m))
+                if 'target_distance_cm' in extra:
+                    target_distance_m = float(extra['target_distance_cm']) / 100.0
                 target_lateral_m = float(extra.get('target_lateral_m', target_lateral_m))
         except Exception as e:
             result.success = False
@@ -152,7 +154,7 @@ class DockAlignServer(Node):
             goal_handle.succeed()
             return result
 
-        start_time = time.time()
+        start_time = time.monotonic()
 
         while rclpy.ok():
             if goal_handle.is_cancel_requested:
@@ -162,7 +164,7 @@ class DockAlignServer(Node):
                 goal_handle.canceled()
                 return result
 
-            if time.time() - start_time > self.align_timeout_sec:
+            if time.monotonic() - start_time > self.align_timeout_sec:
                 self.stop_robot()
                 result.success = False
                 result.message = 'dock align timeout'

@@ -23,8 +23,6 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-find_package(slam_toolbox REQUIRED)
-
 install(
   DIRECTORY launch rviz params
   DESTINATION share/${PROJECT_NAME}

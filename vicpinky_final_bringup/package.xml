@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vicpinky_final_bringup</name>
+  <version>0.1.0</version>
+  <description>Final mission wrapper that preserves the team's Pinky base launch unchanged.</description>
+  <maintainer email="team@example.com">VicPinky Team</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>vicpinky_bringup</exec_depend>
+  <exec_depend>vicpinky_navigation</exec_depend>
+  <exec_depend>vicpinky_task_servers</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

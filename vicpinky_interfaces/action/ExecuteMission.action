@@ -4,6 +4,7 @@ string pickup_location
 string delivery_location
 int32 target_floor
 string object_label
+string arm_task_name
 
 ---
 # Result

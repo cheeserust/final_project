@@ -6,6 +6,7 @@ import time
 
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -25,6 +26,7 @@ class BaseRotateServer(Node):
         self.declare_parameter('angular_speed', 0.25)
         self.declare_parameter('angle_tolerance_deg', 3.0)
         self.declare_parameter('rotate_timeout_sec', 15.0)
+        self.declare_parameter('odom_stale_timeout_sec', 0.5)
 
         self.server_name = self.get_parameter('server_name').value
         self.mock_mode = bool(self.get_parameter('mock_mode').value)
@@ -33,11 +35,22 @@ class BaseRotateServer(Node):
         self.angular_speed = float(self.get_parameter('angular_speed').value)
         self.angle_tolerance_rad = math.radians(float(self.get_parameter('angle_tolerance_deg').value))
         self.rotate_timeout_sec = float(self.get_parameter('rotate_timeout_sec').value)
+        self.odom_stale_timeout_sec = float(
+            self.get_parameter('odom_stale_timeout_sec').value
+        )
 
         self.latest_yaw = None
+        self.last_odom_monotonic = 0.0
+        self.cb_group = ReentrantCallbackGroup()
 
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
+        self.create_subscription(
+            Odometry,
+            self.odom_topic,
+            self.odom_callback,
+            10,
+            callback_group=self.cb_group,
+        )
 
         self.action_server = ActionServer(
             self,
@@ -46,6 +59,7 @@ class BaseRotateServer(Node):
             execute_callback=self.execute_callback,
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback,
+            callback_group=self.cb_group,
         )
 
         self.get_logger().info('Base Rotate Action Server Started.')
@@ -55,6 +69,14 @@ class BaseRotateServer(Node):
     def odom_callback(self, msg):
         q = msg.pose.pose.orientation
         self.latest_yaw = self.quaternion_to_yaw(q.x, q.y, q.z, q.w)
+        self.last_odom_monotonic = time.monotonic()
+
+    def odom_is_fresh(self):
+        return (
+            self.latest_yaw is not None
+            and time.monotonic() - self.last_odom_monotonic
+            <= self.odom_stale_timeout_sec
+        )
 
     def goal_callback(self, goal_request):
         if goal_request.task_id not in ('rotate', 'turn', 'base_rotate'):
@@ -89,12 +111,19 @@ class BaseRotateServer(Node):
         if self.mock_mode:
             return self.run_mock(goal_handle, result, angle_deg)
 
-        if self.latest_yaw is None:
+        if not self.odom_is_fresh():
             wait_start = time.time()
-            while rclpy.ok() and self.latest_yaw is None:
-                if time.time() - wait_start > 3.0:
+            while rclpy.ok() and not self.odom_is_fresh():
+                if goal_handle.is_cancel_requested:
+                    self.stop_robot()
                     result.success = False
-                    result.message = 'odom not received'
+                    result.message = 'base rotate canceled while waiting odom'
+                    goal_handle.canceled()
+                    return result
+                if time.time() - wait_start > 3.0:
+                    self.stop_robot()
+                    result.success = False
+                    result.message = 'fresh odom not received'
                     goal_handle.abort()
                     return result
                 self.publish_feedback(goal_handle, 'WAIT_ODOM', 0.05, 'waiting odom')
@@ -118,6 +147,13 @@ class BaseRotateServer(Node):
                 self.stop_robot()
                 result.success = False
                 result.message = 'base rotate timeout'
+                goal_handle.abort()
+                return result
+
+            if not self.odom_is_fresh():
+                self.stop_robot()
+                result.success = False
+                result.message = 'odom became stale during base rotation'
                 goal_handle.abort()
                 return result
 

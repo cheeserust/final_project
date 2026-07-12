@@ -8,6 +8,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -25,6 +26,7 @@ class BaseDriveStraightServer(Node):
         self.declare_parameter('linear_speed', 0.15)
         self.declare_parameter('distance_tolerance_m', 0.03)
         self.declare_parameter('drive_timeout_sec', 20.0)
+        self.declare_parameter('odom_stale_timeout_sec', 0.5)
 
         self.server_name = self.get_parameter('server_name').value
         self.mock_mode = bool(self.get_parameter('mock_mode').value)
@@ -37,11 +39,22 @@ class BaseDriveStraightServer(Node):
         self.drive_timeout_sec = float(
             self.get_parameter('drive_timeout_sec').value
         )
+        self.odom_stale_timeout_sec = float(
+            self.get_parameter('odom_stale_timeout_sec').value
+        )
 
         self.latest_xy = None
+        self.last_odom_monotonic = 0.0
+        self.cb_group = ReentrantCallbackGroup()
 
         self.cmd_vel_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
-        self.create_subscription(Odometry, self.odom_topic, self.odom_callback, 10)
+        self.create_subscription(
+            Odometry,
+            self.odom_topic,
+            self.odom_callback,
+            10,
+            callback_group=self.cb_group,
+        )
 
         self.action_server = ActionServer(
             self,
@@ -50,6 +63,7 @@ class BaseDriveStraightServer(Node):
             execute_callback=self.execute_callback,
             goal_callback=self.goal_callback,
             cancel_callback=self.cancel_callback,
+            callback_group=self.cb_group,
         )
 
         self.get_logger().info('Base Drive Straight Action Server Started.')
@@ -59,6 +73,14 @@ class BaseDriveStraightServer(Node):
     def odom_callback(self, msg):
         pose = msg.pose.pose.position
         self.latest_xy = (float(pose.x), float(pose.y))
+        self.last_odom_monotonic = time.monotonic()
+
+    def odom_is_fresh(self):
+        return (
+            self.latest_xy is not None
+            and time.monotonic() - self.last_odom_monotonic
+            <= self.odom_stale_timeout_sec
+        )
 
     def goal_callback(self, goal_request):
         if goal_request.task_id not in (
@@ -99,12 +121,19 @@ class BaseDriveStraightServer(Node):
         if self.mock_mode:
             return self.run_mock(goal_handle, result, distance_m, direction)
 
-        if self.latest_xy is None:
+        if not self.odom_is_fresh():
             wait_start = time.time()
-            while rclpy.ok() and self.latest_xy is None:
-                if time.time() - wait_start > 3.0:
+            while rclpy.ok() and not self.odom_is_fresh():
+                if goal_handle.is_cancel_requested:
+                    self.stop_robot()
                     result.success = False
-                    result.message = 'odom not received'
+                    result.message = 'base drive canceled while waiting odom'
+                    goal_handle.canceled()
+                    return result
+                if time.time() - wait_start > 3.0:
+                    self.stop_robot()
+                    result.success = False
+                    result.message = 'fresh odom not received'
                     goal_handle.abort()
                     return result
                 self.publish_feedback(goal_handle, 'WAIT_ODOM', 0.05, 'waiting odom')
@@ -126,6 +155,13 @@ class BaseDriveStraightServer(Node):
                 self.stop_robot()
                 result.success = False
                 result.message = 'base drive timeout'
+                goal_handle.abort()
+                return result
+
+            if not self.odom_is_fresh():
+                self.stop_robot()
+                result.success = False
+                result.message = 'odom became stale during base drive'
                 goal_handle.abort()
                 return result
 

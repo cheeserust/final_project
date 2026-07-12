@@ -16,7 +16,7 @@ from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy
+from rclpy.qos import qos_profile_sensor_data
 
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Twist
@@ -24,8 +24,6 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Int32
 
 from vicpinky_interfaces.action import RunTask
-
-IMAGE_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, depth=5)
 
 # ── 카메라 캘리브레이션 ─────────────────────────────────────
 # 로지텍 (전방)
@@ -55,7 +53,7 @@ REAR_IMAGE_TOPIC  = "/rear_camera/image_raw"
 FLOOR_IDS         = [4, 5]       # 랜딩 마커 ID = 층 번호
 
 MARKER_LENGTH     = 0.1          # 마커 한 변 길이(m)
-BOARDING_STOP_CM  = 60.0         # 승차시 목표 거리 (cm)
+BOARDING_STOP_CM  = 35.0         # 승차시 BOARD 마커까지 목표 거리 (cm)
 EXIT_STOP_CM      = 60.0        # 하차시 목표 거리 (cm)
 STOP_TOLERANCE_CM = 1.5          # 허용 오차
 
@@ -91,23 +89,36 @@ class ElevatorServers(Node):
         self.declare_parameter('board_wait_timeout_sec', 180.0)
         self.declare_parameter('exit_wait_timeout_sec', 180.0)
         self.declare_parameter('servo_timeout_sec', 90.0)
+        self.declare_parameter('boarding_target_distance_cm', BOARDING_STOP_CM)
+        self.declare_parameter('camera_stale_timeout_sec', 0.75)
 
         self.board_server_name = self.get_parameter('board_server_name').value
         self.exit_server_name = self.get_parameter('exit_server_name').value
         self.board_wait_timeout_sec = float(self.get_parameter('board_wait_timeout_sec').value)
         self.exit_wait_timeout_sec = float(self.get_parameter('exit_wait_timeout_sec').value)
         self.servo_timeout_sec = float(self.get_parameter('servo_timeout_sec').value)
+        self.boarding_target_distance_cm = float(
+            self.get_parameter('boarding_target_distance_cm').value)
+        self.camera_stale_timeout_sec = float(
+            self.get_parameter('camera_stale_timeout_sec').value)
 
         self.bridge = CvBridge()
-        aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
-        self.detector = cv2.aruco.ArucoDetector(aruco_dict, cv2.aruco.DetectorParameters())
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+        if hasattr(cv2.aruco, 'ArucoDetector'):
+            self.detector = cv2.aruco.ArucoDetector(
+                self.aruco_dict, cv2.aruco.DetectorParameters())
+            self.use_new_aruco_api = True
+        else:
+            # Ubuntu 22.04/OpenCV 4.6 does not provide ArucoDetector.
+            self.detector_parameters = cv2.aruco.DetectorParameters_create()
+            self.use_new_aruco_api = False
 
         self.cb_group = ReentrantCallbackGroup()
 
         self.cmd_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.floor_pub = self.create_publisher(Int32, "/tag/floor_id", 10)
 
-        # 디바운스 카운터 / 최신 pose 캐시 {id: (tz_cm, tx_m, frame_idx)}
+        # 디바운스 카운터 / 최신 pose 캐시 {id: (tz_cm, tx_m, monotonic_time)}
         self.front_seen = {}
         self.rear_seen = {}
         self.front_pose = {}
@@ -148,7 +159,6 @@ class ElevatorServers(Node):
 
     # ── 이미지 콜백: 검출 + pose 계산 ─────────────────────────
     def image_cb(self, msg, cam, seen_dict, pose_dict, camera_matrix, dist_coeffs):
-        self.get_logger().info(f'{cam} cb enter, rear_enabled={self.rear_enabled}')  # 임시
         if cam == "front" and self.rear_enabled:
             return
         if cam == "rear" and not self.rear_enabled:
@@ -157,15 +167,16 @@ class ElevatorServers(Node):
         try:
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         except Exception as e:
-            self.get_logger().error(f'{cam} bridge fail: {e}')
+            self.get_logger().error(
+                f'{cam} bridge fail: {e}', throttle_duration_sec=5.0)
             return
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = self.detector.detectMarkers(gray)
+        if self.use_new_aruco_api:
+            corners, ids, _ = self.detector.detectMarkers(gray)
+        else:
+            corners, ids, _ = cv2.aruco.detectMarkers(
+                gray, self.aruco_dict, parameters=self.detector_parameters)
         now_ids = {int(i) for i in ids.flatten()} if ids is not None else set()
-
-        # 디버깅용 로그
-        if self.frame_idx[cam] % 5 == 0:
-            self.get_logger().info(f'{cam} ids: {now_ids}')
 
         for mid in set(seen_dict) | now_ids:
             seen_dict[mid] = (min(seen_dict.get(mid, 0) + 1, DEBOUNCE_FRAMES)
@@ -189,24 +200,24 @@ class ElevatorServers(Node):
             if ok:
                 tz_cm = float(tvec[2][0]) * 100.0
                 tx_m = float(tvec[0][0])
-                pose_dict[int(marker_id)] = (tz_cm, tx_m, self.frame_idx[cam])
+                pose_dict[int(marker_id)] = (tz_cm, tx_m, time.monotonic())
 
     def stable_seen(self, seen_dict, marker_id) -> bool:
         return seen_dict.get(marker_id, 0) >= DEBOUNCE_FRAMES
 
     def get_fresh_pose(self, cam, pose_dict, marker_id):
-        """최근 LOST_FRAMES 이내 검출된 pose만 유효"""
+        """카메라 프레임이 멈춰도 시간 기준으로 만료된 pose를 거부한다."""
         entry = pose_dict.get(marker_id)
         if entry is None:
             return None
-        tz_cm, tx_m, seen_frame = entry
-        if self.frame_idx[cam] - seen_frame > LOST_FRAMES:
+        tz_cm, tx_m, seen_time = entry
+        if time.monotonic() - seen_time > self.camera_stale_timeout_sec:
             return None
         return tz_cm, tx_m
 
     # ── 서보잉: 목표거리까지 P control ────────────────────────
     def servo_toward(self, tz_cm, tx_m, direction, target_cm=BOARDING_STOP_CM):
-        """direction: +1 전진(탑승), -1 후진(하차). 도착 시 True"""
+        """Drive forward (+1) or backward (-1); return True on arrival."""
         error_cm = tz_cm - target_cm
         if abs(error_cm) <= STOP_TOLERANCE_CM:
             self.stop()
@@ -214,8 +225,22 @@ class ElevatorServers(Node):
         linear = KP_LINEAR * abs(error_cm)
         linear = max(MIN_LINEAR, min(MAX_LINEAR, linear))
         angular = -KP_ANGULAR * tx_m
-        self.drive(linear=direction * linear, angular=angular)
+        error_direction = 1.0 if error_cm > 0.0 else -1.0
+        self.drive(linear=direction * error_direction * linear, angular=angular)
         return False
+
+    def board_target_cm(self, goal):
+        """Read per-goal distance while accepting both cm and legacy metre keys."""
+        target_cm = self.boarding_target_distance_cm
+        if goal.extra_json:
+            extra = json.loads(goal.extra_json)
+            if 'target_distance_cm' in extra:
+                target_cm = float(extra['target_distance_cm'])
+            elif 'target_distance_m' in extra:
+                target_cm = 100.0 * float(extra['target_distance_m'])
+        if not 5.0 <= target_cm <= 300.0:
+            raise ValueError('target distance must be in [5, 300] cm')
+        return target_cm
 
     # ── goal / cancel 콜백 ────────────────────────────────────
     def board_goal_cb(self, goal_request):
@@ -263,6 +288,11 @@ class ElevatorServers(Node):
         self.busy = True
         result = RunTask.Result()
         dt = 1.0 / CONTROL_HZ
+        try:
+            target_distance_cm = self.board_target_cm(goal_handle.request)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            return self.finish(
+                goal_handle, result, False, f'board: invalid extra_json: {exc}')
 
         # 전방 카메라 활성 보장 + 캐시 초기화
         self.rear_enabled = False
@@ -280,7 +310,9 @@ class ElevatorServers(Node):
                 return result
             if time.time() - start > self.board_wait_timeout_sec:
                 return self.finish(goal_handle, result, False, 'board: door-open wait timeout')
-            if self.stable_seen(self.front_seen, BOARD_MARKER_ID):
+            if (self.stable_seen(self.front_seen, BOARD_MARKER_ID)
+                    and self.get_fresh_pose(
+                        "front", self.front_pose, BOARD_MARKER_ID) is not None):
                 self.get_logger().info("문 열림 감지(BOARD 마커) → 서보잉 탑승 시작")
                 break
             self.feedback(goal_handle, 'WAIT_DOOR', 0.1, 'waiting board marker')
@@ -301,18 +333,22 @@ class ElevatorServers(Node):
 
             pose = self.get_fresh_pose("front", self.front_pose, BOARD_MARKER_ID)
             if pose is None:
-                self.get_logger().warn("BOARD 마커 놓침 → 정지(안전)")
+                self.get_logger().warn(
+                    "BOARD 마커/카메라 놓침 → 정지(안전)",
+                    throttle_duration_sec=2.0)
                 self.stop()
                 self.feedback(goal_handle, 'BOARDING', 0.5, 'marker lost, holding')
                 time.sleep(dt)
                 continue
             tz_cm, tx_m = pose
-            err = abs(tz_cm - BOARDING_STOP_CM)
+            err = abs(tz_cm - target_distance_cm)
             init_err = init_err or max(err, 1.0)
             self.feedback(goal_handle, 'BOARDING',
                           min(0.2 + 0.8 * (1 - err / init_err), 0.99),
                           f'dist {tz_cm:.1f}cm')
-            if self.servo_toward(tz_cm, tx_m, direction=+1, target_cm=BOARDING_STOP_CM):
+            if self.servo_toward(
+                    tz_cm, tx_m, direction=+1,
+                    target_cm=target_distance_cm):
                 # 탑승 완료 → 후방 카메라로 전환
                 self.rear_seen.clear()
                 self.rear_pose.clear()
@@ -348,7 +384,9 @@ class ElevatorServers(Node):
                 return result
             if time.time() - start > self.exit_wait_timeout_sec:
                 return self.finish(goal_handle, result, False, 'exit: floor marker wait timeout')
-            if self.stable_seen(self.rear_seen, target_floor):
+            if (self.stable_seen(self.rear_seen, target_floor)
+                    and self.get_fresh_pose(
+                        "rear", self.rear_pose, target_floor) is not None):
                 self.get_logger().info(f"도착 문 열림 감지 → {target_floor}층, 후진 하차 시작")
                 break
             self.feedback(goal_handle, 'WAIT_FLOOR_MARKER', 0.1,
@@ -370,7 +408,9 @@ class ElevatorServers(Node):
 
             pose = self.get_fresh_pose("rear", self.rear_pose, target_floor)
             if pose is None:
-                self.get_logger().warn("층 마커 놓침 → 정지(안전)")
+                self.get_logger().warn(
+                    "층 마커/카메라 놓침 → 정지(안전)",
+                    throttle_duration_sec=2.0)
                 self.stop()
                 self.feedback(goal_handle, 'EXITING', 0.5, 'marker lost, holding')
                 time.sleep(dt)
