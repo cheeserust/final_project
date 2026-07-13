@@ -17,7 +17,7 @@ markers:
     initial_pose:
       x: 15.77  # 14.93
       y: 1.09  # 1.90
-      yaw: 3.0614 # 0.0
+      yaw: -3.0614 # 0.0
   
   10:
     type: "elevator_interior"
