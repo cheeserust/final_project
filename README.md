@@ -1,4 +1,23 @@
-# Scorpy 시연
+# 3지 그리퍼와 5축 로봇팔 기반 자율주행 시설 관리 로봇 'Scorpy' 개발
+
+<p align="center">
+  <img src="https://img.shields.io/badge/ROS%202-Jazzy-22314E?style=for-the-badge&logo=ros&logoColor=white" alt="ROS 2 Jazzy" />
+  <img src="https://img.shields.io/badge/Nav2-Autonomous%20Navigation-2F6F9F?style=for-the-badge" alt="Nav2" />
+  <img src="https://img.shields.io/badge/Teaching%20Playback-Joint%20Sequence-7B61A8?style=for-the-badge" alt="Teaching Playback" />
+  <img src="https://img.shields.io/badge/ArUco-Marker%20Detection-4B8B3B?style=for-the-badge&logo=opencv&logoColor=white" alt="ArUco" />
+  <img src="https://img.shields.io/badge/SocketCAN-Classic%20CAN-555555?style=for-the-badge&logo=linux&logoColor=white" alt="SocketCAN" />
+  <img src="https://img.shields.io/badge/STM32-Motor%20Control-03234B?style=for-the-badge&logo=stmicroelectronics&logoColor=white" alt="STM32" />
+  <img src="https://img.shields.io/badge/Flask-Web%20GUI-000000?style=for-the-badge&logo=flask&logoColor=white" alt="Flask Web GUI" />
+</p>
+
+Scorpy는 모바일 로봇, 자체제작 로봇팔과 그리퍼를 통합하여 물체를 집고,
+엘리베이터를 이용해 층간 이동한 뒤 지정 위치에 배송하고 출발지로 복귀하는 로봇 시스템입니다.
+
+</div>
+
+---
+
+## Scorpy 시연
 
 Scorpy가 물건을 집은 뒤 엘리베이터를 이용해 4층에서 5층으로 이동하고, 지정된 위치에 물건을 놓은 후 다시 4층 초기 위치로 복귀하는 전체 시연 과정입니다.
 
