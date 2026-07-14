@@ -17,9 +17,26 @@ Scorpy는 모바일 로봇, 자체제작 로봇팔과 그리퍼를 통합하여 
 
 ---
 
+## 시스템 아키텍처
+
+주행, 로봇팔 제어, 엘리베이터 버튼 조작, 층간 이동 및 전체 미션 흐름은 중앙 서버 기반의 미션 시퀀스를 통해 수행됩니다.
+
+![Scorpy System Architecture](./imgs/system_architecture.png)
+
+---
+
 ## Scorpy 시연
 
 Scorpy가 물건을 집은 뒤 엘리베이터를 이용해 4층에서 5층으로 이동하고, 지정된 위치에 물건을 놓은 후 다시 4층 초기 위치로 복귀하는 전체 시연 과정입니다.
+
+---
+
+## 시연 영상
+
+전체 시연 영상은 아래 링크에서 확인할 수 있습니다.
+
+🎥 **YouTube Demo**
+https://youtu.be/[여기에_유튜브_링크를_입력하세요](https://www.youtube.com/watch?v=SFhqKYEVt58)
 
 ---
 
