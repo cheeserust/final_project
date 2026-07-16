@@ -1,0 +1,717 @@
+{
+  "schema_version": 1,
+  "revision": 28,
+  "next_pose_id": 12,
+  "next_workflow_id": 2,
+  "next_category_id": 8,
+  "uncategorized_category_id": 7,
+  "web": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "poll_interval_sec": 0.25
+  },
+  "topics": {
+    "front_image": "/front_camera/image_raw",
+    "front_camera_info": "/front_camera/camera_info",
+    "rear_image": "/rear_camera/image_raw",
+    "rear_camera_info": "/rear_camera/camera_info",
+    "odom": "/odom",
+    "joint_states": "/joint_states",
+    "cmd_vel_raw": "/final_project_presentation2/cmd_vel_raw",
+    "cmd_vel": "/cmd_vel",
+    "watchdog_config": "/final_project_presentation2/watchdog_config",
+    "arm_action": "/arm_controller/execute_joint_goal",
+    "gripper_action": "/gripper_controller/follow_joint_trajectory",
+    "arm_status_service": "/arm_board/status",
+    "arm_enable_service": "/arm_board/enable",
+    "arm_disable_service": "/arm_board/disable",
+    "arm_home_service": "/arm_board/home_all",
+    "arm_clear_error_service": "/arm_board/clear_error",
+    "arm_estop_service": "/arm_board/estop"
+  },
+  "cameras": {
+    "front": {
+      "use_camera_info": false,
+      "transport": "raw",
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "steering_sign": -1,
+      "camera_matrix": [
+        708.85065781,
+        0.0,
+        308.289349,
+        0.0,
+        707.92630029,
+        244.0512732,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "distortion_coefficients": [
+        0.02414867,
+        0.89713946,
+        0.00248749,
+        -0.01085416,
+        -2.32266594
+      ]
+    },
+    "rear": {
+      "use_camera_info": false,
+      "transport": "raw",
+      "flip_horizontal": false,
+      "flip_vertical": false,
+      "steering_sign": -1,
+      "camera_matrix": [
+        859.90806761,
+        0.0,
+        252.83359168,
+        0.0,
+        858.64794316,
+        248.03325075,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "distortion_coefficients": [
+        0.13899504,
+        -0.77334006,
+        0.00611556,
+        -0.01769451,
+        2.75664301
+      ]
+    }
+  },
+  "aruco": {
+    "dictionary": "DICT_4X4_1000",
+    "marker_size_m": 0.05
+  },
+  "markers": {
+    "pickup": {
+      "id": 1,
+      "camera": "rear",
+      "completion_mode": "distance_only",
+      "target_distance_m": 1.2,
+      "target_lateral_m": 0.0,
+      "target_yaw_deg": 0.0,
+      "distance_tolerance_m": 0.06,
+      "lateral_tolerance_m": 0.07,
+      "yaw_tolerance_deg": 10.0,
+      "hold_time_sec": 0.3,
+      "max_linear_mps": 0.08,
+      "max_angular_rps": 0.25
+    },
+    "dropoff": {
+      "id": 3,
+      "camera": "front",
+      "completion_mode": "distance_only",
+      "target_distance_m": 0.2,
+      "target_lateral_m": 0.0,
+      "target_yaw_deg": 0.0,
+      "distance_tolerance_m": 0.06,
+      "lateral_tolerance_m": 0.07,
+      "yaw_tolerance_deg": 10.0,
+      "hold_time_sec": 0.3,
+      "max_linear_mps": 0.08,
+      "max_angular_rps": 0.25
+    }
+  },
+  "route": {
+    "outbound": {
+      "camera": "front",
+      "start_marker": "pickup",
+      "destination_marker": "dropoff",
+      "linear_direction": 1
+    },
+    "return": {
+      "camera": "rear",
+      "start_marker": "dropoff",
+      "destination_marker": "pickup",
+      "linear_direction": -1
+    }
+  },
+  "motion_control": {
+    "control_rate_hz": 20.0,
+    "linear_kp": 0.5,
+    "lateral_kp": 1.2,
+    "yaw_kp": 0.8,
+    "max_linear_mps": 0.08,
+    "max_angular_rps": 0.25,
+    "linear_gate_angle_deg": 12.0,
+    "min_steering_rps": 0.05,
+    "steering_output_scale": 0.5,
+    "steering_slow_band_ratio": 2.0,
+    "alignment_hysteresis_ratio": 1.5,
+    "distance_tolerance_m": 0.03,
+    "lateral_tolerance_m": 0.025,
+    "yaw_tolerance_deg": 4.0,
+    "stable_detections": 1,
+    "hold_time_sec": 0.5,
+    "acquire_creep_mps": 0.05
+  },
+  "turn_control": {
+    "control_rate_hz": 20.0,
+    "kp": 1.5,
+    "min_angular_rps": 0.08,
+    "max_angular_rps": 0.35,
+    "tolerance_deg": 2.0,
+    "settle_time_sec": 0.4,
+    "manual_steps_deg": [
+      1.0,
+      5.0
+    ]
+  },
+  "timeouts": {
+    "camera_stale_sec": 3.0,
+    "camera_info_sec": 30.0,
+    "odom_stale_sec": 1.0,
+    "joint_state_stale_sec": 2.0,
+    "marker_acquire_sec": 30.0,
+    "acquire_creep_sec": 60.0,
+    "marker_loss_sec": 1.0,
+    "marker_observation_stale_sec": 0.25,
+    "straight_segment_sec": 120.0,
+    "turn_sec": 30.0,
+    "alignment_sec": 120.0,
+    "stop_sec": 10.0,
+    "arm_service_sec": 20.0,
+    "arm_home_sec": 185.0
+  },
+  "safety": {
+    "watchdog_rate_hz": 20.0,
+    "watchdog_cmd_timeout_sec": 0.25,
+    "operator_lease_timeout_sec": 2.5,
+    "max_linear_mps": 0.12,
+    "max_angular_rps": 0.5,
+    "reject_nonfinite_commands": true,
+    "require_arm_fault_clear": false
+  },
+  "arm": {
+    "joint_names": [
+      "base_joint",
+      "arm_joint_1",
+      "arm_joint_2",
+      "arm_joint_3",
+      "arm_joint_4"
+    ],
+    "joint_limits_deg": {
+      "base_joint": [
+        -90.0,
+        180.0
+      ],
+      "arm_joint_1": [
+        -86.5,
+        90.0
+      ],
+      "arm_joint_2": [
+        -78.1,
+        80.0
+      ],
+      "arm_joint_3": [
+        -91.5,
+        90.0
+      ],
+      "arm_joint_4": [
+        -90.0,
+        90.0
+      ]
+    },
+    "duration_min_sec": 0.1,
+    "duration_max_sec": 30.0,
+    "default_duration_sec": 2.0,
+    "result_timeout_margin_sec": 10.0,
+    "axis4_duration_warning_sec": 1.275
+  },
+  "gripper": {
+    "joint_names": [
+      "finger_1_base_joint",
+      "finger_1_middle_joint",
+      "finger_1_tip_joint",
+      "finger_2_base_joint",
+      "finger_2_middle_joint",
+      "finger_2_tip_joint",
+      "finger_3_base_joint",
+      "finger_3_middle_joint",
+      "finger_3_tip_joint"
+    ],
+    "joint_limits_deg": {
+      "finger_1_base_joint": [
+        -70.3,
+        70.3
+      ],
+      "finger_1_middle_joint": [
+        -137.7,
+        52.7
+      ],
+      "finger_1_tip_joint": [
+        -111.3,
+        111.3
+      ],
+      "finger_2_base_joint": [
+        -70.3,
+        70.3
+      ],
+      "finger_2_middle_joint": [
+        -137.7,
+        52.7
+      ],
+      "finger_2_tip_joint": [
+        -111.3,
+        111.3
+      ],
+      "finger_3_base_joint": [
+        -70.3,
+        70.3
+      ],
+      "finger_3_middle_joint": [
+        -137.7,
+        52.7
+      ],
+      "finger_3_tip_joint": [
+        -111.3,
+        111.3
+      ]
+    },
+    "duration_min_sec": 0.1,
+    "duration_max_sec": 30.0,
+    "default_duration_sec": 1.0,
+    "result_timeout_margin_sec": 10.0,
+    "target_load_raw": {
+      "min": 0,
+      "max": 1023,
+      "default": 500
+    }
+  },
+  "categories": {
+    "1": {
+      "name": "공통",
+      "protected": true,
+      "order": 0
+    },
+    "2": {
+      "name": "야구공",
+      "protected": false,
+      "order": 10
+    },
+    "3": {
+      "name": "컵",
+      "protected": false,
+      "order": 20
+    },
+    "4": {
+      "name": "물병",
+      "protected": false,
+      "order": 30
+    },
+    "5": {
+      "name": "인형",
+      "protected": false,
+      "order": 40
+    },
+    "6": {
+      "name": "점검·시험",
+      "protected": false,
+      "order": 50
+    },
+    "7": {
+      "name": "미분류",
+      "protected": true,
+      "order": 999
+    }
+  },
+  "poses": {
+    "1": {
+      "name": "레디자세",
+      "category_id": 1,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": -5.0,
+          "arm_joint_1": 0.0,
+          "arm_joint_2": -30.0,
+          "arm_joint_3": -50.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 10.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": 0.0,
+          "finger_2_base_joint": 0.6,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": 0.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": 0.0
+        },
+        "duration_sec": 5.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "2": {
+      "name": "인형잡기_잡기_직전",
+      "category_id": 5,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": -25.0,
+          "arm_joint_1": 39.5,
+          "arm_joint_2": -33.0,
+          "arm_joint_3": -70.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": -70.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": -40.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": -40.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 800
+      },
+      "dwell_sec": 0.3
+    },
+    "3": {
+      "name": "인형잡기_그리퍼만_잡기완료",
+      "category_id": 5,
+      "arm": {
+        "enabled": false,
+        "positions_deg": {
+          "base_joint": -10.0,
+          "arm_joint_1": 38.0,
+          "arm_joint_2": -40.0,
+          "arm_joint_3": -58.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": -135.0,
+          "finger_1_tip_joint": -70.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": -135.0,
+          "finger_2_tip_joint": -70.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": -135.0,
+          "finger_3_tip_joint": -70.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 800
+      },
+      "dwell_sec": 0.3
+    },
+    "4": {
+      "name": "인형잡기_내리기_직전",
+      "category_id": 5,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": -10.0,
+          "arm_joint_1": 38.0,
+          "arm_joint_2": -40.0,
+          "arm_joint_3": -58.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 5.0
+      },
+      "gripper": {
+        "enabled": false,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": 0.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": 0.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": 0.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 800
+      },
+      "dwell_sec": 0.3
+    },
+    "5": {
+      "name": "인형잡기_내리기_완료",
+      "category_id": 5,
+      "arm": {
+        "enabled": false,
+        "positions_deg": {
+          "base_joint": 0.0,
+          "arm_joint_1": 0.0,
+          "arm_joint_2": 0.0,
+          "arm_joint_3": 0.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": 0.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": 0.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": 0.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "6": {
+      "name": "물건_내려놓기_직전",
+      "category_id": 1,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": 15.0,
+          "arm_joint_1": 35.0,
+          "arm_joint_2": -20.0,
+          "arm_joint_3": -60.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 5.0
+      },
+      "gripper": {
+        "enabled": false,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": -77.3,
+          "finger_1_tip_joint": -69.1,
+          "finger_2_base_joint": 0.3,
+          "finger_2_middle_joint": -74.7,
+          "finger_2_tip_joint": -69.1,
+          "finger_3_base_joint": -1.5,
+          "finger_3_middle_joint": -80.3,
+          "finger_3_tip_joint": -68.3
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "7": {
+      "name": "물건_내려놓기_그리퍼",
+      "category_id": 1,
+      "arm": {
+        "enabled": false,
+        "positions_deg": {
+          "base_joint": 15.0,
+          "arm_joint_1": 35.0,
+          "arm_joint_2": -20.0,
+          "arm_joint_3": -60.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": -50.0,
+          "finger_1_tip_joint": -60.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": -50.0,
+          "finger_2_tip_joint": -60.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": -50.0,
+          "finger_3_tip_joint": -60.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "8": {
+      "name": "야구공_잡기_직전",
+      "category_id": 2,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": 8.0,
+          "arm_joint_1": 41.0,
+          "arm_joint_2": -33.0,
+          "arm_joint_3": -70.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": false,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": -69.7,
+          "finger_2_base_joint": -0.3,
+          "finger_2_middle_joint": 0.3,
+          "finger_2_tip_joint": -40.1,
+          "finger_3_base_joint": -0.6,
+          "finger_3_middle_joint": -0.3,
+          "finger_3_tip_joint": -39.8
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "9": {
+      "name": "야구공_잡기_완료",
+      "category_id": 2,
+      "arm": {
+        "enabled": false,
+        "positions_deg": {
+          "base_joint": 0.0,
+          "arm_joint_1": 0.0,
+          "arm_joint_2": 0.0,
+          "arm_joint_3": 0.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 2.0
+      },
+      "gripper": {
+        "enabled": true,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": -110.0,
+          "finger_1_tip_joint": -50.0,
+          "finger_2_base_joint": 0.0,
+          "finger_2_middle_joint": -110.0,
+          "finger_2_tip_joint": -50.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": -110.0,
+          "finger_3_tip_joint": -50.0
+        },
+        "duration_sec": 1.0,
+        "target_load_raw": 800
+      },
+      "dwell_sec": 0.3
+    },
+    "10": {
+      "name": "야구공_잡기_레디자세",
+      "category_id": 2,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": -5.0,
+          "arm_joint_1": 0.0,
+          "arm_joint_2": -30.0,
+          "arm_joint_3": -50.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 10.0
+      },
+      "gripper": {
+        "enabled": false,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": 0.0,
+          "finger_2_base_joint": 0.6,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": 0.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": 0.0
+        },
+        "duration_sec": 5.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    },
+    "11": {
+      "name": "물건잡고_레디자세",
+      "category_id": 1,
+      "arm": {
+        "enabled": true,
+        "positions_deg": {
+          "base_joint": -5.0,
+          "arm_joint_1": 0.0,
+          "arm_joint_2": -30.0,
+          "arm_joint_3": -50.0,
+          "arm_joint_4": 0.0
+        },
+        "duration_sec": 10.0
+      },
+      "gripper": {
+        "enabled": false,
+        "positions_deg": {
+          "finger_1_base_joint": 0.0,
+          "finger_1_middle_joint": 0.0,
+          "finger_1_tip_joint": 0.0,
+          "finger_2_base_joint": 0.6,
+          "finger_2_middle_joint": 0.0,
+          "finger_2_tip_joint": 0.0,
+          "finger_3_base_joint": 0.0,
+          "finger_3_middle_joint": 0.0,
+          "finger_3_tip_joint": 0.0
+        },
+        "duration_sec": 5.0,
+        "target_load_raw": 500
+      },
+      "dwell_sec": 0.3
+    }
+  },
+  "workflows": {
+    "1": {
+      "name": "인형잡기워크플로우",
+      "category_id": 5,
+      "steps": [
+        {
+          "pose_id": 1,
+          "type": "POSE"
+        },
+        {
+          "pose_id": 2,
+          "type": "POSE"
+        },
+        {
+          "pose_id": 3,
+          "type": "POSE"
+        },
+        {
+          "type": "POSE",
+          "pose_id": 11
+        },
+        {
+          "type": "GO_DROPOFF"
+        },
+        {
+          "pose_id": 6,
+          "type": "POSE"
+        },
+        {
+          "pose_id": 7,
+          "type": "POSE"
+        },
+        {
+          "pose_id": 1,
+          "type": "POSE"
+        },
+        {
+          "type": "GO_PICKUP"
+        }
+      ]
+    }
+  }
+}

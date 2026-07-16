@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#eef2f7">
+  <title>Final Project Presentation 2 · Straight Route</title>
+  <link rel="stylesheet" href="/static/app.css?v=20260714-workflow-stages">
+  <script defer src="/static/app.js?v=20260714-workflow-actions-enabled"></script>
+</head>
+<body>
+  <a class="skip-link" href="#mainContent">본문으로 건너뛰기</a>
+
+  <header class="topbar">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true">FP2</span>
+      <div>
+        <p class="eyebrow">VIC PINKY CONTROL DESK</p>
+        <h1>Final Project Presentation 2</h1>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div id="connectionBadge" class="connection-badge offline" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="connectionText">연결 확인 중</span>
+      </div>
+      <span id="revisionText" class="revision-label">rev —</span>
+      <button id="clearErrorTopbar" class="btn btn-danger-quiet topbar-clear-error" data-lock="config" data-checkpoint-allowed type="button">오류 해제</button>
+      <button id="emergencyStop" class="btn btn-stop" type="button">
+        <span aria-hidden="true">■</span>
+        전체 중지
+      </button>
+    </div>
+  </header>
+
+  <main id="mainContent" class="app-shell">
+    <section class="hero-grid" aria-label="실시간 상태와 주행 제어">
+      <article class="panel status-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">SYSTEM</p>
+            <h2>실시간 상태</h2>
+          </div>
+          <span id="stateBadge" class="state-badge state-unknown">UNKNOWN</span>
+        </div>
+
+        <dl class="status-summary">
+          <div><dt>현재 실행</dt><dd id="runText">없음</dd></div>
+          <div><dt>경로</dt><dd id="routeText">—</dd></div>
+          <div><dt>단계</dt><dd id="stepText">—</dd></div>
+          <div><dt>마지막 갱신</dt><dd id="lastUpdateText">—</dd></div>
+        </dl>
+
+        <div id="errorPanel" class="alert error-alert" hidden>
+          <div>
+            <strong>실행이 잠겼습니다</strong>
+            <p id="errorText">오류 내용을 불러오는 중입니다.</p>
+          </div>
+          <button id="clearError" class="btn btn-danger-quiet" data-lock="config" data-checkpoint-allowed type="button">오류 해제</button>
+        </div>
+
+        <ul class="health-grid" aria-label="장치 연결 상태">
+          <li><span>전방 카메라</span><strong id="frontHealth" class="health unknown">확인 중</strong></li>
+          <li><span>후방 카메라</span><strong id="rearHealth" class="health unknown">확인 중</strong></li>
+          <li><span>Odometry</span><strong id="odomHealth" class="health unknown">확인 중</strong></li>
+          <li><span>로봇팔</span><strong id="armHealth" class="health unknown">확인 중</strong></li>
+          <li><span>그리퍼</span><strong id="gripperHealth" class="health unknown">확인 중</strong></li>
+          <li><span>Watchdog</span><strong id="watchdogHealth" class="health unknown">확인 중</strong></li>
+        </ul>
+      </article>
+
+      <article class="panel vision-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">ARUCO GUIDANCE</p>
+            <h2>카메라 · 마커</h2>
+          </div>
+          <span id="activeCameraBadge" class="camera-badge">카메라 —</span>
+        </div>
+
+        <div id="markerViewport" class="marker-viewport" aria-label="마커 상대 위치 표시">
+          <div class="guide guide-vertical" aria-hidden="true"></div>
+          <div class="guide guide-horizontal" aria-hidden="true"></div>
+          <div class="target-zone" aria-hidden="true"></div>
+          <div id="markerIndicator" class="marker-indicator" hidden>
+            <span id="markerIndicatorId">ID —</span>
+          </div>
+          <p id="markerEmptyText" class="viewport-empty">카메라 마커 대기 중</p>
+        </div>
+
+        <div class="camera-preview-grid" aria-label="전방 및 후방 카메라 실시간 영상">
+          <figure>
+            <figcaption>전방 카메라</figcaption>
+            <img id="frontCameraPreview" alt="전방 카메라 영상" loading="eager">
+            <p id="frontCameraStatus" class="camera-preview-status" role="status">영상 확인 중</p>
+          </figure>
+          <figure>
+            <figcaption>후방 카메라</figcaption>
+            <img id="rearCameraPreview" alt="후방 카메라 영상" loading="eager">
+            <p id="rearCameraStatus" class="camera-preview-status" role="status">영상 확인 중</p>
+          </figure>
+        </div>
+
+        <dl class="metric-grid">
+          <div><dt>활성 카메라</dt><dd id="activeCameraText">—</dd></div>
+          <div><dt>목표 / 검출 ID</dt><dd id="markerIdText">— / —</dd></div>
+          <div><dt>거리</dt><dd id="distanceText">— m</dd></div>
+          <div><dt>좌우 오차</dt><dd id="lateralText">— m</dd></div>
+          <div><dt>Yaw 오차</dt><dd id="yawText">—°</dd></div>
+          <div><dt>회전 진행</dt><dd id="turnText">—° / —°</dd></div>
+        </dl>
+        <p id="markerTargetDiagnostic" class="marker-target-diagnostic idle" role="status">주행 대기 중 · 현재 보이는 마커를 표시합니다.</p>
+      </article>
+
+      <article class="panel route-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">STRAIGHT TRACK · BOTH WAYS</p>
+            <h2>주행 명령</h2>
+          </div>
+          <span id="motionReadyBadge" class="ready-badge not-ready">준비 확인 중</span>
+        </div>
+
+        <div class="route-map" aria-label="마커 1 집기 위치와 마커 3 놓기 위치 사이의 직선 왕복 경로">
+          <div class="route-node dropoff"><span>C</span><strong>놓기</strong></div>
+          <div class="route-line horizontal" aria-hidden="true"></div>
+          <div class="route-node pickup"><span>A</span><strong>집기</strong></div>
+          <div id="routeRobot" class="route-robot" role="img" aria-label="로봇 위치 A 집기">
+            <div id="routeRobotBody" class="route-robot-body" aria-hidden="true">
+              <span>R</span>
+            </div>
+          </div>
+        </div>
+        <p id="routeMotionText" class="route-motion-text" role="status">대기 · A 집기</p>
+
+        <div class="route-actions">
+          <button id="goDropoff" class="btn btn-primary btn-large" data-lock="drive" type="button">
+            놓을 위치로 이동
+            <small>마커 1 → 마커 3 직선 전진</small>
+          </button>
+          <button id="goPickup" class="btn btn-secondary btn-large" data-lock="drive" type="button">
+            집기 위치로 원상복귀
+            <small>마커 3 → 마커 1 직선 후진</small>
+          </button>
+        </div>
+        <div id="checkpointActions" class="checkpoint-actions" hidden>
+          <p>재개 가능한 목적지 거리 이동 체크포인트가 남아 있습니다.</p>
+          <button id="continueCheckpoint" class="btn btn-primary" data-lock="drive" data-checkpoint-allowed type="button">
+            목적지 이동 계속
+          </button>
+          <button id="discardCheckpoint" class="btn btn-danger-quiet" data-lock="checkpoint" data-checkpoint-allowed type="button">
+            체크포인트 취소
+          </button>
+        </div>
+        <p id="motionBlockReason" class="control-note" role="status">장치 준비 상태를 확인하고 있습니다.</p>
+      </article>
+    </section>
+
+    <section class="workspace-grid" aria-label="설정과 자동화">
+      <article class="panel turn-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">MANUAL ALIGNMENT</p>
+            <h2>수동 회전·마커 시험</h2>
+          </div>
+        </div>
+
+        <div class="nudge-row" aria-label="미세 회전">
+          <button class="btn btn-nudge" data-lock="turn" data-checkpoint-allowed data-workflow-recovery-allowed data-turn-degrees="-5" type="button">−5°</button>
+          <button class="btn btn-nudge" data-lock="turn" data-checkpoint-allowed data-workflow-recovery-allowed data-turn-degrees="-1" type="button">−1°</button>
+          <button class="btn btn-nudge" data-lock="turn" data-checkpoint-allowed data-workflow-recovery-allowed data-turn-degrees="1" type="button">+1°</button>
+          <button class="btn btn-nudge" data-lock="turn" data-checkpoint-allowed data-workflow-recovery-allowed data-turn-degrees="5" type="button">+5°</button>
+        </div>
+
+        <form id="exactTurnForm" class="inline-form">
+          <label for="exactTurnDegrees">직접 지정 각도</label>
+          <div class="input-action">
+            <input id="exactTurnDegrees" name="degrees" data-lock="turn" type="number" min="-179.9" max="179.9" step="0.1" value="0" required>
+            <span class="input-suffix">deg</span>
+            <button class="btn btn-secondary" data-lock="turn" type="submit">정확히 회전</button>
+          </div>
+        </form>
+        <div class="marker-test-grid" aria-label="마커별 단일 접근 시험">
+          <button class="btn btn-ghost" data-lock="drive" data-marker-test="pickup" type="button">집기 — 시험</button>
+          <button class="btn btn-ghost" data-lock="drive" data-marker-test="dropoff" type="button">놓기 — 시험</button>
+        </div>
+        <p class="control-note">직선 왕복에는 자동 회전이 없습니다. 이 회전 버튼은 설치·정렬 시험용 수동 명령입니다.</p>
+      </article>
+
+      <article class="panel category-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">LIBRARY</p>
+            <h2>카테고리 관리</h2>
+          </div>
+        </div>
+        <label class="field full-width">
+          <span>현재 카테고리</span>
+          <select id="categorySelect" data-lock="config"></select>
+        </label>
+        <form id="categoryAddForm" class="input-action category-action">
+          <label class="sr-only" for="newCategoryName">새 카테고리 이름</label>
+          <input id="newCategoryName" maxlength="40" placeholder="새 카테고리 이름" required>
+          <button class="btn btn-secondary" data-lock="config" type="submit">추가</button>
+        </form>
+        <div class="input-action category-action">
+          <label class="sr-only" for="renameCategoryName">변경할 카테고리 이름</label>
+          <input id="renameCategoryName" maxlength="40" placeholder="선택 카테고리 이름 변경">
+          <button id="renameCategory" class="btn btn-secondary" data-lock="config" type="button">변경</button>
+          <button id="deleteCategory" class="btn btn-danger-quiet" data-lock="config" type="button">삭제</button>
+        </div>
+        <p class="control-note">카테고리를 삭제하면 포함된 동작과 워크플로우는 ‘미분류’로 이동합니다.</p>
+      </article>
+
+      <article class="panel config-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">SINGLE SOURCE</p>
+            <h2>통합 설정</h2>
+          </div>
+        </div>
+        <dl class="config-summary">
+          <div><dt>파일</dt><dd id="configPathText">—</dd></div>
+          <div><dt>Schema</dt><dd id="schemaVersionText">—</dd></div>
+          <div><dt>Revision</dt><dd id="configRevisionText">—</dd></div>
+          <div><dt>검증</dt><dd id="configValidationText">확인 중</dd></div>
+        </dl>
+        <div id="restartRequiredPanel" class="alert restart-alert" role="status" hidden>
+          <div>
+            <strong>노드 재시작 필요</strong>
+            <p id="restartRequiredText">변경된 설정을 적용하려면 재시작하세요.</p>
+          </div>
+        </div>
+        <button id="reloadConfig" class="btn btn-secondary full-button" data-lock="config" type="button">설정 다시 불러오기</button>
+        <p class="control-note">실행 중에는 설정과 라이브러리를 변경할 수 없습니다.</p>
+      </article>
+    </section>
+
+    <section class="panel editor-panel" aria-labelledby="poseEditorTitle">
+      <div class="panel-heading editor-heading">
+        <div>
+          <p class="section-kicker">ARM &amp; GRIPPER POSE LIBRARY</p>
+          <h2 id="poseEditorTitle">로봇팔 동작 편집</h2>
+        </div>
+        <div class="heading-actions">
+          <button id="resetPoseForm" class="btn btn-ghost" data-lock="config" type="button">새 동작</button>
+        </div>
+      </div>
+
+      <section class="arm-board-controls" aria-labelledby="armBoardControlTitle">
+        <div>
+          <p class="section-kicker">MANUAL ARM BOARD</p>
+          <h3 id="armBoardControlTitle">로봇팔 전원 · 상태 수동 제어</h3>
+          <p>Disable만 확인 창이 표시되며, 나머지는 누르는 즉시 전송됩니다.</p>
+        </div>
+        <div class="arm-board-actions">
+          <button id="armEnable" class="btn btn-secondary" data-lock="config" data-workflow-recovery-allowed type="button">Enable</button>
+          <button id="armHome" class="btn btn-secondary" data-lock="config" data-workflow-recovery-allowed type="button">Home</button>
+          <button id="armDisable" class="btn btn-danger-quiet" type="button">Disable</button>
+          <button id="armClear" class="btn btn-secondary" data-lock="config" data-workflow-recovery-allowed type="button">Clear</button>
+          <button id="armEstop" class="btn btn-stop" type="button">ESTOP</button>
+        </div>
+      </section>
+
+      <section class="arm-board-status-panel" aria-labelledby="armBoardStatusTitle">
+        <div class="arm-board-status-heading">
+          <div>
+            <h3 id="armBoardStatusTitle">보드별 현재 상태</h3>
+            <p id="armBoardStatusAge">상태 수신 대기 중</p>
+          </div>
+          <button id="armStatusRefresh" class="btn btn-ghost" type="button">상태 새로고침</button>
+        </div>
+        <p id="armBoardRecommendation" class="board-recommendation neutral">보드 상태를 확인하고 있습니다.</p>
+        <div id="armBoardGrid" class="arm-board-grid">
+          <div class="board-status-empty">아직 수신된 보드 상태가 없습니다.</div>
+        </div>
+      </section>
+
+      <form id="poseForm">
+        <input id="poseEditId" type="hidden">
+        <div class="form-grid pose-meta-grid">
+          <label class="field">
+            <span>동작 ID <small>비우면 자동</small></span>
+            <input id="poseId" type="number" min="1" step="1" inputmode="numeric" placeholder="자동">
+          </label>
+          <label class="field span-2">
+            <span>동작 이름</span>
+            <input id="poseName" maxlength="60" required placeholder="예: 물병 집기 준비">
+          </label>
+          <label class="field">
+            <span>카테고리</span>
+            <select id="poseCategory" required></select>
+          </label>
+          <label class="field">
+            <span>동작 후 대기</span>
+            <div class="input-with-suffix"><input id="poseDwell" type="number" min="0" max="30" step="0.1" value="0.3" required><span>sec</span></div>
+          </label>
+        </div>
+
+        <div class="actuator-grid">
+          <fieldset id="armFieldset" class="actuator-card">
+            <legend>
+              <label class="toggle-label"><input id="armEnabled" type="checkbox" checked> <span>로봇팔 5축 사용</span></label>
+            </legend>
+            <button id="fillCurrentJoints" class="btn btn-secondary full-button current-feedback-button" data-lock="config" type="button">현재값으로 바꾸기</button>
+            <div class="joint-table" role="group" aria-label="로봇팔 목표 각도">
+              <div class="joint-row joint-head"><span>관절</span><span>목표</span><span>현재</span></div>
+              <label class="joint-row"><strong>Base</strong><span class="input-with-suffix"><input id="armJoint0" class="arm-joint" type="number" min="-90" max="180" step="0.1" value="0"><span>°</span></span><output id="armFeedback0">—</output></label>
+              <label class="joint-row"><strong>Arm 1</strong><span class="input-with-suffix"><input id="armJoint1" class="arm-joint" type="number" min="-86.5" max="90" step="0.1" value="0"><span>°</span></span><output id="armFeedback1">—</output></label>
+              <label class="joint-row"><strong>Arm 2</strong><span class="input-with-suffix"><input id="armJoint2" class="arm-joint" type="number" min="-78.1" max="80" step="0.1" value="0"><span>°</span></span><output id="armFeedback2">—</output></label>
+              <label class="joint-row"><strong>Arm 3</strong><span class="input-with-suffix"><input id="armJoint3" class="arm-joint" type="number" min="-91.5" max="90" step="0.1" value="0"><span>°</span></span><output id="armFeedback3">—</output></label>
+              <label class="joint-row"><strong>Arm 4</strong><span class="input-with-suffix"><input id="armJoint4" class="arm-joint" type="number" min="-90" max="90" step="0.1" value="0"><span>°</span></span><output id="armFeedback4">—</output></label>
+            </div>
+            <label class="field compact-field">
+              <span>팔 Duration</span>
+              <div class="input-with-suffix"><input id="armDuration" type="number" min="0.1" max="30" step="0.1" value="6" required><span>sec</span></div>
+            </label>
+            <button id="manualArmExecute" class="btn btn-secondary full-button" data-lock="pose" type="button">입력 각도로 팔만 실행</button>
+          </fieldset>
+
+          <fieldset id="gripperFieldset" class="actuator-card">
+            <legend>
+              <label class="toggle-label"><input id="gripperEnabled" type="checkbox"> <span>그리퍼 9축 사용</span></label>
+            </legend>
+            <div class="gripper-joints" role="group" aria-label="그리퍼 목표 각도">
+              <div class="finger-group"><strong>Finger 1</strong><label>Base<input id="gripperJoint0" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Middle<input id="gripperJoint1" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Tip<input id="gripperJoint2" class="gripper-joint" type="number" step="0.1" value="0"></label></div>
+              <div class="finger-group"><strong>Finger 2</strong><label>Base<input id="gripperJoint3" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Middle<input id="gripperJoint4" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Tip<input id="gripperJoint5" class="gripper-joint" type="number" step="0.1" value="0"></label></div>
+              <div class="finger-group"><strong>Finger 3</strong><label>Base<input id="gripperJoint6" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Middle<input id="gripperJoint7" class="gripper-joint" type="number" step="0.1" value="0"></label><label>Tip<input id="gripperJoint8" class="gripper-joint" type="number" step="0.1" value="0"></label></div>
+            </div>
+            <div class="form-grid gripper-meta-grid">
+              <label class="field"><span>그리퍼 Duration</span><div class="input-with-suffix"><input id="gripperDuration" type="number" min="0.1" max="30" step="0.1" value="1"><span>sec</span></div></label>
+              <label class="field"><span>Target load</span><input id="gripperLoad" type="number" min="0" max="1023" step="1" value="500"></label>
+            </div>
+            <button id="manualGripperExecute" class="btn btn-secondary full-button" data-lock="pose" type="button">입력 각도로 그리퍼만 실행</button>
+          </fieldset>
+        </div>
+
+        <div class="form-actions">
+          <button id="testPose" class="btn btn-secondary" data-lock="pose" type="button">팔 + 그리퍼 입력값 실행</button>
+          <button class="btn btn-primary" data-lock="config" type="submit">동작 저장</button>
+        </div>
+      </form>
+
+      <div class="library-toolbar">
+        <label class="field"><span>카테고리 필터</span><select id="poseCategoryFilter"></select></label>
+        <label class="field search-field"><span>동작 검색</span><input id="poseSearch" type="search" placeholder="ID 또는 이름"></label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>이름</th><th>카테고리</th><th>구성</th><th>Duration</th><th class="actions-cell">작업</th></tr></thead>
+          <tbody id="poseTableBody"><tr><td colspan="6" class="empty-cell">저장된 동작을 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel editor-panel" aria-labelledby="workflowEditorTitle">
+      <div class="panel-heading editor-heading">
+        <div>
+          <p class="section-kicker">AUTOMATION</p>
+          <h2 id="workflowEditorTitle">워크플로우 편집</h2>
+        </div>
+        <button id="resetWorkflowForm" class="btn btn-ghost" data-lock="config" type="button">새 워크플로우</button>
+      </div>
+
+      <form id="workflowForm">
+        <input id="workflowEditId" type="hidden">
+        <div class="form-grid workflow-meta-grid">
+          <label class="field"><span>워크플로우 ID <small>비우면 자동</small></span><input id="workflowId" type="number" min="1" step="1" inputmode="numeric" placeholder="자동"></label>
+          <label class="field span-2"><span>이름</span><input id="workflowName" maxlength="60" required placeholder="예: 물병 전체 운반"></label>
+          <label class="field"><span>카테고리</span><select id="workflowCategory" required></select></label>
+        </div>
+
+        <div class="step-builder">
+          <label class="field">
+            <span>단계 종류</span>
+            <select id="stepType">
+              <option value="POSE">저장 동작 실행</option>
+              <option value="GO_DROPOFF">놓기 위치로 이동</option>
+              <option value="WAIT_SECONDS">시간 대기</option>
+              <option value="GO_PICKUP">집기 위치로 복귀</option>
+            </select>
+          </label>
+          <label id="stepPoseWrap" class="field span-2"><span>저장 동작</span><select id="stepPoseId"></select></label>
+          <label id="stepWaitWrap" class="field" hidden><span>대기 시간</span><div class="input-with-suffix"><input id="stepWaitSeconds" type="number" min="0.1" max="3600" step="0.1" value="1"><span>sec</span></div></label>
+          <button id="addWorkflowStep" class="btn btn-secondary step-add" data-lock="config" type="button">단계 추가</button>
+        </div>
+
+        <ol id="workflowStepList" class="step-list" aria-label="워크플로우 단계">
+          <li class="empty-step">단계를 추가해 워크플로우를 만드세요.</li>
+        </ol>
+        <div class="form-actions">
+          <button class="btn btn-primary" data-lock="config" type="submit">워크플로우 저장</button>
+        </div>
+      </form>
+
+      <div class="library-toolbar">
+        <label class="field"><span>카테고리 필터</span><select id="workflowCategoryFilter"></select></label>
+        <label class="field search-field"><span>워크플로우 검색</span><input id="workflowSearch" type="search" placeholder="ID 또는 이름"></label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>이름</th><th>카테고리</th><th>단계</th><th class="actions-cell">작업</th></tr></thead>
+          <tbody id="workflowTableBody"><tr><td colspan="5" class="empty-cell">저장된 워크플로우를 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+
+      <section id="workflowProgressPanel" class="workflow-progress-panel workflow-stage-panel" aria-labelledby="workflowProgressTitle">
+        <div class="workflow-progress-heading">
+          <div>
+            <p class="section-kicker">WORKFLOW STAGES</p>
+            <h3 id="workflowProgressTitle">워크플로우 진행 단계</h3>
+          </div>
+          <span id="workflowProgressStatus" class="workflow-progress-status">대기</span>
+        </div>
+        <div class="workflow-progress-track" role="progressbar" aria-label="워크플로우 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span id="workflowProgressBar"></span>
+        </div>
+        <p id="workflowCurrentStep" class="workflow-current-step">워크플로우를 선택하세요.</p>
+        <p id="workflowProgressSummary" class="workflow-progress-summary">성공 0 · 건너뜀 0 · 전체 0</p>
+        <ol id="workflowExecutionSteps" class="workflow-execution-steps" aria-label="워크플로우 실행 단계">
+          <li class="workflow-execution-empty">워크플로우 표에서 확인할 항목을 선택하세요.</li>
+        </ol>
+        <p id="workflowStepSelectionHint" class="workflow-step-selection-hint">실패하면 원하는 단계를 선택한 뒤 다시 시작할 수 있습니다.</p>
+        <div id="workflowRecoveryMessage" class="workflow-recovery-message" role="alert" hidden></div>
+        <div id="workflowRecoveryActions" class="workflow-recovery-actions">
+          <button id="retryWorkflowStep" class="btn btn-primary" type="button">실패 단계 재시도</button>
+          <button id="skipWorkflowStep" class="btn btn-secondary" type="button">다음 단계로 진행</button>
+          <button id="resumeWorkflowAtStep" class="btn btn-secondary" type="button">선택 단계부터 실행</button>
+          <button id="abortPausedWorkflow" class="btn btn-danger-quiet" type="button">워크플로우 종료</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="panel event-panel" aria-labelledby="eventTitle">
+      <div class="panel-heading">
+        <div><p class="section-kicker">RECENT EVENTS</p><h2 id="eventTitle">최근 기록</h2></div>
+        <button id="clearLocalEvents" class="btn btn-ghost" type="button">화면 기록 지우기</button>
+      </div>
+      <ol id="eventList" class="event-list" aria-live="polite"><li class="muted-event">아직 기록이 없습니다.</li></ol>
+    </section>
+  </main>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite" aria-atomic="false"></div>
+
+  <dialog id="confirmDialog" class="confirm-dialog">
+    <form method="dialog">
+      <p class="section-kicker">CONFIRM ACTION</p>
+      <h2 id="confirmTitle">작업 확인</h2>
+      <p id="confirmMessage">계속하시겠습니까?</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel">취소</button>
+        <button id="confirmAccept" class="btn btn-danger" value="confirm">확인</button>
+      </div>
+    </form>
+  </dialog>
+</body>
+</html>
