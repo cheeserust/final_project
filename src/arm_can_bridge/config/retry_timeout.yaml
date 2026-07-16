@@ -1,0 +1,37 @@
+arm_can_bridge:
+  ros__parameters:
+    # CAN/hybrid arm retry와 timeout 운영값은 이 파일에서 한 번에 조정한다.
+    # 단위는 이름에 표시된 대로 모두 ms다.
+    # 중앙 미션 단계별 timeout/retry는 이 파일이 아니라
+    # src/mission_manager/config/action_servers.yaml에서 조정한다.
+
+    # Board1 Goal V3 READY/STAGING retry. Board2 legacy에는 적용하지 않는다.
+    # ACK가 없거나 STAGING_TIMEOUT일 때만 적용한다.
+    # BUSY/INVALID/CONFLICT는 이 횟수와 무관하게 즉시 종료한다.
+    arm_v3_ready_timeout_ms: 250
+    arm_v3_max_stage_attempts: 200
+
+    # Board1 STARTED/CANCELLED와 실행 중 양쪽 status heartbeat timeout.
+    arm_v3_communication_timeout_ms: 1000
+
+    # 실제 SocketCAN frame send 실패(ENOBUFS/EAGAIN) retry profile.
+    can_tx_retry_count: 10
+    can_tx_retry_delay_ms: 10.0
+
+    # 한 application batch 내부 frame 간격과 writer 완료 대기 timeout.
+    can_batch_inter_frame_delay_ms: 8.0
+    can_writer_batch_timeout_ms: 2000
+
+    # Clear Error가 active goal의 Board1 CANCEL 완료를 기다리는 시간.
+    clear_active_goal_timeout_ms: 7000
+
+    # Enable/Disable/Clear/E-stop 같은 공통 control 응답 timeout.
+    control_wait_timeout_ms: 3000
+
+    # 전체 homing 및 post-home escape 완료 timeout.
+    homing_wait_timeout_ms: 180000
+
+    # Board status heartbeat freshness와 Board3 queue/completion timeout.
+    status_timeout_ms: 500
+    queue_wait_timeout_ms: 3000
+    completion_grace_ms: 3000

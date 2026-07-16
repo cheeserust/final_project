@@ -1,0 +1,60 @@
+actions:
+  go_to:
+    server: /nav/go_to
+    task_id: go_to
+    timeout_sec: 60.0
+    retry: 1
+
+  dock_to_marker:
+    server: /dock/align
+    task_id: dock_to_marker
+    timeout_sec: 20.0
+    retry: 2
+
+  pick:
+    server: /arm/pick
+    task_id: pick
+    timeout_sec: 40.0
+    retry: 1
+
+  place:
+    server: /arm/place
+    task_id: place
+    timeout_sec: 40.0
+    retry: 1
+
+  press_button:
+    server: /arm/press_button
+    task_id: press_button
+    timeout_sec: 30.0
+    retry: 1
+
+  homing:
+    server: /arm/homing
+    task_id: homing
+    timeout_sec: 40.0
+    retry: 1
+
+  wait_door_open:
+    server: /elevator/wait_door_open
+    task_id: wait_door_open
+    timeout_sec: 60.0
+    retry: 0
+
+  check_floor:
+    server: /floor/check
+    task_id: check_floor
+    timeout_sec: 15.0
+    retry: 2
+
+  map_switch:
+    server: /map/switch
+    task_id: map_switch
+    timeout_sec: 30.0
+    retry: 1
+
+  exit_elevator:
+    server: /elevator/exit
+    task_id: exit_elevator
+    timeout_sec: 300.0
+    retry: 0

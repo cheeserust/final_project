@@ -1,804 +1,191 @@
 # VicPinky Arm CAN Protocol
 
-이 문서는 Board1, Board2, Board3가 함께 사용하는 최종 CAN 통합 기준이다.
-배포 기준은 아래 3개 보드별 프로토콜 문서다.
+이 문서는 서버가 사용하는 현재 hybrid wire contract다. Board1은 Goal V3 direct
+joint-goal이고, Arduino Board2는 legacy V2 position command를 사용한다. Board3
+`0x103/0x203/0x303`은 기존 gripper protocol을 유지한다. Board1에는 V3
+`duration_ms`를 보내고 Board2에는 legacy 5 ms duration tick을 보낸다.
 
-```text
-Board1_CAN_Protocol
-Board2_CAN_Protocol
-Board3_CAN_Protocol
-```
+## Joint mapping
 
-단, Board3 `0x103`의 Byte5~6은 오늘 추가한 파지 부하 기능을 반영해
-`Target Load`로 확장한다. 이 확장은 기존 8 byte frame 구조와 CAN ID를
-바꾸지 않고, 원래 `Speed`로 예약/미사용이던 자리를 재정의한다.
+| Joint | Board | Move ID | Local motor | Raw limit (0.01°) |
+|---|---:|---:|---:|---:|
+| `base_joint` | 1 | `0x101` | 3 | `-9000..18000` |
+| `arm_joint_1` | 1 | `0x101` | 0 | `-8650..9000` |
+| `arm_joint_2` | 1 | `0x101` | 1 | `-7810..8000` |
+| `arm_joint_3` | 1 | `0x101` | 2 | `-9150..9000` |
+| `arm_joint_4` | 2 | `0x102` | 0 | `-9000..9000` |
 
----
+서버 입력 배열은 반드시 joint name으로 매핑한다. Board1 송신 순서는 local
+motor `0,1,2,3`, 그 다음 Board2 motor `0`이다.
 
-## 1. 가장 중요한 원칙
+## Board1 Goal V3 frame
 
-```text
-서버/RPi 내부에서는 board_id로 대상 보드를 구분할 수 있다.
-하지만 실제 CAN frame payload에는 Board ID를 넣지 않는다.
-보드 구분은 CAN ID로 한다.
-```
+Board1은 `0x101`, DLC는 8이다.
 
-따라서 아래 과거 방식은 사용하지 않는다.
-
-```bash
-# 사용 금지: payload에 Target Board를 넣는 과거 방식
-cansend can0 010#01FF000000000000
-cansend can0 010#0102000000000000
-cansend can0 010#0103000000000000
-cansend can0 020#02FF000000000000
-cansend can0 020#03FF000000000000
-cansend can0 030#02FF000000000000
-cansend can0 030#03FF000000000000
-```
-
-최종 공통 명령은 아래처럼 broadcast payload를 사용한다.
-
-```bash
-cansend can0 010#0100000000000000  # 전체 Enable
-cansend can0 010#0000000000000000  # 전체 Disable
-cansend can0 020#FF00000000000000  # Board1+Board2 stepper homing
-cansend can0 023#FF00000000000000  # Board3 gripper home posture
-cansend can0 030#FF00000000000000  # 전체 Clear Error
-cansend can0 001#0100000000000000  # 전체 ESTOP
-```
-
----
-
-## 2. Board 역할과 CAN ID
-
-| Board | 역할 | Move CAN ID | Status CAN ID | Position Feedback CAN ID | Payload Motor ID |
-|---|---|---:|---:|---:|---|
-| Board1 | 팔 2~5축 stepper 4개 | `0x101` | `0x201` | `0x301` | `0~3` |
-| Board2 | base 1축 stepper 1개 | `0x102` | `0x202` | `0x302` | `0` |
-| Board3 | gripper servo 9개 | `0x103` | `0x203` | `0x303` | `0~8` |
-
-MoveIt2 기준 joint mapping은 아래와 같다.
-
-| MoveIt Joint | 실제 축 | Board | Local Motor ID |
-|---|---|---:|---:|
-| `base_joint` | 베이스 1축 | Board2 | `0` |
-| `arm_joint_1` | 팔 2축 | Board1 | `0` |
-| `arm_joint_2` | 팔 3축 | Board1 | `1` |
-| `arm_joint_3` | 팔 4축 | Board1 | `2` |
-| `arm_joint_4` | 팔 5축 | Board1 | `3` |
-| `finger_1_base_joint` | finger 1 base | Board3 | `0` |
-| `finger_1_middle_joint` | finger 1 middle | Board3 | `1` |
-| `finger_1_tip_joint` | finger 1 tip | Board3 | `2` |
-| `finger_2_base_joint` | finger 2 base | Board3 | `3` |
-| `finger_2_middle_joint` | finger 2 middle | Board3 | `4` |
-| `finger_2_tip_joint` | finger 2 tip | Board3 | `5` |
-| `finger_3_base_joint` | finger 3 base | Board3 | `6` |
-| `finger_3_middle_joint` | finger 3 middle | Board3 | `7` |
-| `finger_3_tip_joint` | finger 3 tip | Board3 | `8` |
-
----
-
-## 3. CAN ID 전체 목록
-
-| CAN ID | 방향 | 용도 |
-|---:|---|---|
-| `0x001` | 서버/RPi → 전체 보드 | Emergency Stop |
-| `0x010` | 서버/RPi → 전체 보드 | Enable / Disable broadcast |
-| `0x020` | 서버/RPi → Board1+Board2 | Stepper homing broadcast |
-| `0x023` | 서버/RPi → Board3 | Gripper home posture |
-| `0x030` | 서버/RPi → 전체 보드 | Clear Error broadcast |
-| `0x101` | 서버/RPi → Board1 | Board1 4축 trajectory frame |
-| `0x102` | 서버/RPi → Board2 | Board2 base trajectory frame |
-| `0x103` | 서버/RPi → Board3 | Board3 gripper servo frame |
-| `0x201` | Board1 → 서버/RPi | Board1 status |
-| `0x202` | Board2 → 서버/RPi | Board2 status |
-| `0x203` | Board3 → 서버/RPi | Board3 status |
-| `0x301` | Board1 → 서버/RPi | Board1 current position feedback |
-| `0x302` | Board2 → 서버/RPi | Board2 current position feedback |
-| `0x303` | Board3 → 서버/RPi | Board3 current position feedback |
-
----
-
-## 4. 공통 제어 명령
-
-### 4.1 ESTOP, CAN ID `0x001`
-
-```text
-CAN ID = 0x001
-DLC = 8
-```
-
-| Byte | 필드 | 값 |
-|---:|---|---:|
-| 0 | ESTOP request | `1` |
-| 1~7 | Reserved | `0` |
-
-```bash
-cansend can0 001#0100000000000000
-```
-
-수신 시 보드는 motion을 정지하고 driver/servo torque를 disable하며 queue와
-staging buffer를 clear한다. ESTOP 해제는 Clear Error가 아니라
-`0x010 Enable=1`에서 처리한다.
-
-### 4.2 Enable / Disable, CAN ID `0x010`
-
-```text
-CAN ID = 0x010
-DLC = 8
-payload에 Target Board를 넣지 않는다.
-```
-
-| Byte | 필드 | 값 |
-|---:|---|---|
-| 0 | Enable | `0`: Disable, `1`: Enable |
-| 1~7 | Reserved | `0` |
-
-```bash
-cansend can0 010#0100000000000000  # 전체 Enable
-cansend can0 010#0000000000000000  # 전체 Disable
-```
-
-Board1, Board2, Board3는 `0x010`을 수신하면 항상 처리한다.
-
-### 4.3 Stepper Homing, CAN ID `0x020`
-
-```text
-CAN ID = 0x020
-DLC = 8
-대상 = Board1 + Board2
-Board3는 기본적으로 0x020을 무시한다.
-payload에 Target Board를 넣지 않는다.
-```
-
-| Byte | 필드 | 값 |
-|---:|---|---|
-| 0 | Target Motor | `0xFF`: 전체 stepper homing |
-| 1 | Homing Mode | `0` |
-| 2~7 | Reserved | `0` |
-
-```bash
-cansend can0 020#FF00000000000000
-```
-
-처리 조건:
-
-```text
-enabled == 1
-state != STATE_ESTOP
-Homing Mode == 0
-Target Motor == 0xFF
-```
-
-Board1은 local motor `0~3`, Board2는 local motor `0`을 homing한다.
-Board3 gripper home은 `0x023`을 사용한다.
-
-### 4.4 Gripper Home Posture, CAN ID `0x023`
-
-```text
-CAN ID = 0x023
-DLC = 8
-대상 = Board3
-payload에 Board ID를 넣지 않는다.
-```
-
-| Byte | 필드 | 설명 |
-|---:|---|---|
-| 0 | Target Motor | `0xFF`: 전체 gripper home posture |
-| 1 | Home Mode | `0` |
-| 2 | Duration | 5ms tick. `0`이면 firmware 기본값 사용 |
-| 3~7 | Reserved | `0` |
-
-```bash
-cansend can0 023#FF00000000000000
-```
-
-Board3 home posture는 모든 gripper Motor ID `0~8`의 목표 각도를
-`0.00도`로 설정하는 명령이다.
-
-### 4.5 Clear Error, CAN ID `0x030`
-
-```text
-CAN ID = 0x030
-DLC = 8
-payload에 Target Board를 넣지 않는다.
-```
-
-| Byte | 필드 | 값 |
-|---:|---|---|
-| 0 | Target Motor | `0xFF`: 전체 error clear |
-| 1~7 | Reserved | `0` |
-
-```bash
-cansend can0 030#FF00000000000000
-```
-
-Clear Error는 error/fault flag와 queue 관련 error를 clear한다. ESTOP 상태는
-Clear Error만으로 해제하지 않고, `0x010 Enable=1`에서 해제한다.
-
----
-
-## 5. 공통 단위
-
-### 5.1 각도 raw 단위
-
-모든 trajectory command의 target position은 `0.01도` 단위 signed integer다.
-
-| 실제 각도 | raw 값 | little endian 예 |
-|---:|---:|---|
-| `30.00 deg` | `3000` | `B8 0B 00 00` |
-| `-15.50 deg` | `-1550` | `F2 F9 FF FF` |
-| `-90.00 deg` | `-9000` | `D8 DC FF FF` |
-
-### 5.2 Duration
-
-`Duration`은 5ms tick이다.
-
-```text
-duration_ms = Byte7 * 5
-```
-
-| Byte7 | 실제 시간 |
-|---:|---:|
-| `1` | `5ms` |
-| `20` | `100ms` |
-| `100` | `500ms` |
-
-`Byte7 = 0`이면 STM32 내부에서 최소 segment로 처리한다.
-
----
-
-## 6. Board1 Protocol
-
-### 6.1 역할
-
-Board1은 팔 2~5축 stepper 4개를 담당한다.
-
-| Board1 Local Motor ID | MoveIt Joint | Min deg | Max deg | Home deg |
-|---:|---|---:|---:|---:|
-| `0` | `arm_joint_1` | `-90` | `90` | `-90` |
-| `1` | `arm_joint_2` | `-80` | `80` | `-80` |
-| `2` | `arm_joint_3` | `-90` | `90` | `-90` |
-| `3` | `arm_joint_4` | `-170` | `170` | `-170` |
-
-### 6.2 Move Command, CAN ID `0x101`
-
-```text
-CAN ID = 0x101
-DLC = 8
-payload에 Board ID 없음
-```
-
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Control & Motor ID | `uint8_t` | flags + Board1 local motor id |
-| 1 | Target Pos LSB | `int32_t` 일부 | 0.01도 단위, little endian |
-| 2 | Target Pos | `int32_t` 일부 |  |
-| 3 | Target Pos | `int32_t` 일부 |  |
-| 4 | Target Pos MSB | `int32_t` 일부 |  |
-| 5 | Speed LSB | `uint16_t` 일부 | 0.01도/s, 초기 firmware에서는 미사용 가능 |
-| 6 | Speed MSB | `uint16_t` 일부 |  |
-| 7 | Duration | `uint8_t` | 5ms tick |
-
-Byte0 구조:
-
-```text
-Bit7 Bit6 Bit5 Bit4 | Bit3 Bit2 Bit1 Bit0
-Exec Rel  Step Rsv  | Motor ID
-```
-
-| Bit | 이름 | 의미 |
-|---:|---|---|
-| 7 | Execute | `1`: staging 대상 |
-| 6 | Relative | `1`: 현재 위치 기준 상대 이동 |
-| 5 | Step Mode | `0`: angle raw, `1`: step |
-| 4 | Reserved | 반드시 `0` |
-| 3~0 | Motor ID | `0~3` |
-
-일반 절대 각도 명령의 Byte0:
-
-| Motor ID | Byte0 |
-|---:|---:|
-| `0` | `0x80` |
-| `1` | `0x81` |
-| `2` | `0x82` |
-| `3` | `0x83` |
-
-### 6.3 Board1 4-frame Staging
-
-Board1 `0x101`은 한 축씩 바로 실행하지 않는다. MoveIt trajectory point 하나는
-반드시 아래 4개 frame이 연속으로 들어와야 한다.
-
-```text
-Motor ID 0 -> 1 -> 2 -> 3
-첫 frame 이후 20ms 안에 4개 frame 수신
-4개 frame의 Duration 동일
-Execute=1
-Reserved bit=0
-안 움직이는 축도 현재 목표 위치를 다시 보내야 함
-```
-
-4번째 frame까지 정상 수신되면 하나의 4축 point로 queue에 들어가고, 네 축이
-같은 tick에서 동시 시작한다.
-
-### 6.4 Board1 Status, CAN ID `0x201`
-
-```text
-CAN ID = 0x201
-DLC = 8
-주기 = 100ms + 주요 이벤트 즉시 송신
-```
-
-| Byte | 필드 | 설명 |
-|---:|---|---|
-| 0 | State | 현재 보드 상태 |
-| 1 | Error Code | 현재 error code |
-| 2 | Homing Done Bits | bit0~3 = local motor 0~3 homing done |
-| 3 | Moving Motor ID | 이동/homing 중인 motor id, 없으면 `255` |
-| 4 | Limit Status Bits | bit0~3 = local motor 0~3 limit active |
-| 5 | Queue Free | 외부 `0x101` command slot 기준, `0~32` |
-| 6 | Enabled | `0`: disabled, `1`: enabled |
-| 7 | Reserved | `0` |
-
-### 6.5 Board1 Position Feedback, CAN ID `0x301`
-
-```text
-CAN ID = 0x301
-DLC = 8
-```
-
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Local Motor ID | `uint8_t` | `0~3` |
-| 1 | Flags | `uint8_t` | position valid / homed / moving / target reached |
-| 2~5 | Current Pos | `int32_t` | 0.01도 단위, little endian |
-| 6 | Error / Fault Code | `uint8_t` | 없으면 `0` |
-| 7 | Sequence Counter | `uint8_t` | 송신 순서 확인 |
-
-Flags:
-
-| Bit | 의미 |
+| Byte | 의미 |
 |---:|---|
-| bit0 | Position Valid |
-| bit1 | Homed / Ready |
-| bit2 | Moving |
-| bit3 | Target Reached |
-| bit4~7 | Reserved, `0` |
+| 0 | `0x90 | local_motor_id` (Execute=1, V3=1, Relative=0, Step=0) |
+| 1~4 | absolute target `int32`, little-endian, 0.01° |
+| 5 | `goal_id` uint8 |
+| 6~7 | `duration_ms` uint16 little-endian, `1..65535` |
 
----
+Board1의 4개 frame은 같은 goal ID와 duration을 사용한다. 범위 밖 target 또는
+V3 duration은 clamp하거나 wrap하지 않고 goal 전체를 거절한다.
 
-## 7. Board2 Protocol
-
-### 7.1 역할
-
-Board2는 base 1축 stepper를 담당한다.
-
-| Local Motor ID | MoveIt Joint | Min deg | Max deg | Home deg |
-|---:|---|---:|---:|---:|
-| `0` | `base_joint` | `-90` | `180` | `-90` |
-
-### 7.2 Move Command, CAN ID `0x102`
+예: `goal_id=0x2A`, `duration_ms=5000`:
 
 ```text
-CAN ID = 0x102
-DLC = 8
-payload에 Board ID 없음
-대상 local motor id = 0
+101#90B80B00002A8813  arm_joint_1 = 30.00°
+101#91F2F9FFFF2A8813  arm_joint_2 = -15.50°
+101#92000000002A8813  arm_joint_3 = 0.00°
+101#93282300002A8813  base_joint  = 90.00°
 ```
 
-Payload는 Board1 `0x101`과 같은 구조를 사용한다.
+## Board2 Arduino legacy V2 frame
 
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Control & Motor ID | `uint8_t` | Board2에서는 일반 명령 `0x80` |
-| 1~4 | Target Pos | `int32_t` | 0.01도 단위, little endian |
-| 5~6 | Speed | `uint16_t` | 초기 firmware에서는 미사용 가능 |
-| 7 | Duration | `uint8_t` | 5ms tick |
+Board2는 `0x102`, DLC는 8이며 V3 goal ID를 wire에 싣지 않는다.
 
-Board2 일반 절대 각도 명령은 항상:
+| Byte | 의미 |
+|---:|---|
+| 0 | `0x80 | local_motor_id` (Execute=1, Relative=0, Step=0), motor ID는 0 |
+| 1~4 | absolute target `int32`, little-endian, 0.01° |
+| 5~6 | legacy speed, 서버는 0으로 송신하며 현재 firmware에서는 무시 |
+| 7 | duration tick: `ceil(duration_ms / 5)`, `1..255`로 clamp |
+
+예를 들어 `arm_joint_4=10.00°`, `duration_ms=5000`이면 duration tick은 1000이
+아니라 최대값 255로 clamp되어 `102#80E80300000000FF`를 보낸다. 따라서 1275 ms
+초과 요청에서는 Board1의 요청 시간과 Board2의 요청 시간이 같지 않다. 기존 미션의
+2~4초 요청을 거절하지 않기 위해 서버는 이 legacy 한계를 로그/문서로 알리고
+Board2 tick만 255로 제한한다. Board2에는 `0x402` ACK가 없고 `0x040`
+START/CANCEL도 구현되어 있지 않다.
+
+## READY, START, CANCEL
+
+Control ID는 `0x040`, DLC 8이다.
 
 ```text
-Byte0 = 0x80
+START  = 01 <goal_id> 00 00 00 00 00 00
+CANCEL = 02 <goal_id> 00 00 00 00 00 00
 ```
 
-예시:
-
-```bash
-# Board2 base를 30.00도로 50ms 동안 이동
-cansend can0 102#80B80B0000E8030A
-
-# Board2 base를 home 위치 -90.00도로 50ms 동안 이동
-cansend can0 102#80D8DCFFFFE8030A
-```
-
-### 7.3 Board2 Status, CAN ID `0x202`
-
-```text
-CAN ID = 0x202
-DLC = 8
-주기 = 100ms + 주요 이벤트 즉시 송신
-```
-
-| Byte | 필드 | 설명 |
-|---:|---|---|
-| 0 | State |
-| 1 | Error Code |
-| 2 | Homing Done Bits | bit0 = base axis homing done |
-| 3 | Moving Motor ID | 이동/homing 중이면 `0`, 없으면 `255` |
-| 4 | Limit Status Bits | bit0 = base limit active |
-| 5 | Queue Free | `0x102` command slot 기준 |
-| 6 | Enabled | `0`: disabled, `1`: enabled |
-| 7 | Reserved | `0` |
-
-예시:
-
-```text
-202#010001FF00200100
-
-state=STATE_IDLE
-error=ERR_NONE
-homing_done bit0=1
-moving=255
-queue_free=32
-enabled=1
-```
-
-### 7.4 Board2 Position Feedback, CAN ID `0x302`
-
-```text
-CAN ID = 0x302
-DLC = 8
-대상 = Board2 local motor 0 / base_joint
-```
-
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Local Motor ID | `uint8_t` | 항상 `0` |
-| 1 | Flags | `uint8_t` | position valid / homed / moving / target reached |
-| 2~5 | Current Pos | `int32_t` | 0.01도 단위, little endian |
-| 6 | Error / Fault Code | `uint8_t` | 없으면 `0` |
-| 7 | Sequence Counter | `uint8_t` | 송신 순서 확인 |
-
-예시:
-
-```text
-302#0001D8DCFFFF00XX  # position valid, -90.00도
-302#000BD8DCFFFF00XX  # valid + homed + target reached, -90.00도
-```
-
----
-
-## 8. Board3 Protocol
-
-### 8.1 역할
-
-Board3는 SCS0009 gripper servo 9개를 담당한다.
-
-| Local Motor ID | Joint | Servo ID |
-|---:|---|---:|
-| `0` | `finger_1_base_joint` | `1` |
-| `1` | `finger_1_middle_joint` | `2` |
-| `2` | `finger_1_tip_joint` | `3` |
-| `3` | `finger_2_base_joint` | `4` |
-| `4` | `finger_2_middle_joint` | `5` |
-| `5` | `finger_2_tip_joint` | `6` |
-| `6` | `finger_3_base_joint` | `7` |
-| `7` | `finger_3_middle_joint` | `8` |
-| `8` | `finger_3_tip_joint` | `9` |
-
-### 8.2 Servo Command, CAN ID `0x103`
-
-```text
-CAN ID = 0x103
-DLC = 8
-payload에 Board ID 없음
-```
-
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Control & Motor ID | `uint8_t` | Bit7 Execute, Bit3~0 Motor ID |
-| 1 | Target Position LSB | `int32_t` 일부 | 0.01도 단위, little endian |
-| 2 | Target Position | `int32_t` 일부 |  |
-| 3 | Target Position | `int32_t` 일부 |  |
-| 4 | Target Position MSB | `int32_t` 일부 |  |
-| 5 | Target Load LSB | `uint16_t` 일부 | 프로젝트 확장, little endian |
-| 6 | Target Load MSB | `uint16_t` 일부 | 프로젝트 확장, little endian |
-| 7 | Duration | `uint8_t` | 5ms tick |
-
-원본 Board3 v1.1 문서에서는 Byte5~6을 `Speed`로 두고 미사용 `0`을 권장했다.
-본 프로젝트에서는 같은 위치를 gripper 파지 부하 임계값으로 재정의한다.
-
-```text
-Target Load 범위 = 0~1023
-권장 기본값 = 500
-```
-
-Board3 firmware는 이 값을 부하 임계값으로 해석한다. 모터가 target load에
-도달하면 이동을 멈추고 hold 상태를 유지할 수 있다. load 기능이 없는
-firmware와 테스트할 때는 Byte5~6을 `0`으로 보내도 기존 v1.1 구조와 호환된다.
-
-Byte0 구조:
-
-```text
-Bit7 Bit6 Bit5 Bit4 | Bit3 Bit2 Bit1 Bit0
-Exec Rsv  Rsv  Rsv  | Motor ID
-```
-
-| Motor ID | Byte0 |
-|---:|---:|
-| `0` | `0x80` |
-| `1` | `0x81` |
-| `2` | `0x82` |
-| `3` | `0x83` |
-| `4` | `0x84` |
-| `5` | `0x85` |
-| `6` | `0x86` |
-| `7` | `0x87` |
-| `8` | `0x88` |
-
-처리 조건:
-
-```text
-execute == 1
-reserved bits == 0
-motor_id <= 8
-enabled == 1
-state != STATE_ESTOP
-```
-
-### 8.3 Board3 9-frame Staging
-
-Gripper 한 번의 동작은 `0x103` frame 9개로 구성된다.
-
-```text
-Motor ID 0 -> 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
-9개 frame의 Duration 동일
-Execute=1
-Reserved bit=0
-중복 Motor ID 없음
-```
-
-9개 frame이 정상 수집되면 하나의 gripper command set으로 처리한다.
-
-예시, 모든 servo를 `0.00도`, target load `500`, duration `100ms`로 이동:
-
-```bash
-cansend can0 103#8000000000F40114
-cansend can0 103#8100000000F40114
-cansend can0 103#8200000000F40114
-cansend can0 103#8300000000F40114
-cansend can0 103#8400000000F40114
-cansend can0 103#8500000000F40114
-cansend can0 103#8600000000F40114
-cansend can0 103#8700000000F40114
-cansend can0 103#8800000000F40114
-```
-
-```text
-Byte5~6 = F4 01 = 0x01F4 = 500
-Byte7 = 0x14 = 20 * 5ms = 100ms
-```
-
-원본 v1.1 speed-unused firmware 테스트용 예시:
-
-```bash
-cansend can0 103#8000000000000014
-```
-
-### 8.4 Board3 Status, CAN ID `0x203`
-
-```text
-CAN ID = 0x203
-DLC = 8
-주기 = 100ms + 주요 이벤트 즉시 송신
-```
-
-| Byte | 필드 | 설명 |
-|---:|---|---|
-| 0 | State | 현재 Board3 상태 |
-| 1 | Error Code | 현재 error code |
-| 2 | Ready | 제어 가능 상태면 `1` |
-| 3 | Staging Count | 현재 staging된 frame 개수 `0~9` |
-| 4 | Fault | fault 있으면 `1` |
-| 5 | Buffer Free | `9 - staging_count` |
-| 6 | Enabled | `0`: disabled, `1`: enabled |
-| 7 | Fault Motor ID | fault motor id, 없으면 `255` |
-
-`0x203`에는 9개 servo 위치를 넣지 않는다. 현재 위치는 `0x303`으로 송신한다.
-
-### 8.5 Board3 Position Feedback, CAN ID `0x303`
-
-```text
-CAN ID = 0x303
-DLC = 8
-주기 = 20ms
-1 feedback cycle = 0x303 frame 3개
-```
-
-| Byte | 필드 | 자료형 | 설명 |
-|---:|---|---|---|
-| 0 | Feedback Frame Index | `uint8_t` | `0x01`, `0x02`, `0x03` |
-| 1~2 | Position A | `int16_t` | 0.01도 단위, little endian |
-| 3~4 | Position B | `int16_t` | 0.01도 단위, little endian |
-| 5~6 | Position C | `int16_t` | 0.01도 단위, little endian |
-| 7 | Reserved / Group Flag | `uint8_t` | v1.1 기본 `0x00` |
-
-Index별 mapping:
-
-| Byte0 Index | 포함 Motor ID | Byte1~2 | Byte3~4 | Byte5~6 |
-|---:|---|---|---|---|
-| `0x01` | `0,1,2` | Motor 0 | Motor 1 | Motor 2 |
-| `0x02` | `3,4,5` | Motor 3 | Motor 4 | Motor 5 |
-| `0x03` | `6,7,8` | Motor 6 | Motor 7 | Motor 8 |
-
-중요:
-
-```text
-Byte7 = 0x00이어도 정상 위치 데이터로 처리해야 한다.
-향후 flag 확장이 필요하면 Byte7을 bitmap으로 확장할 수 있다.
-```
-
-예시:
-
-```bash
-cansend can0 303#0100000000000000
-cansend can0 303#0200000000000000
-cansend can0 303#0300000000000000
-```
-
----
-
-## 9. State / Error 값
-
-### 9.1 Board1 / Board2 State
-
-| 값 | 이름 | 설명 |
-|---:|---|---|
-| `0` | `STATE_INIT` | 초기화 중 |
-| `1` | `STATE_IDLE` | 대기 상태 |
-| `2` | `STATE_HOMING` | 원점복귀 중 |
-| `3` | `STATE_MOVING` | 이동 중 |
-| `4` | `STATE_ERROR` | 에러 발생 |
-| `5` | `STATE_ESTOP` | 비상정지 상태 |
-| `6` | `STATE_DISABLED` | Disable 상태 |
-
-### 9.2 Board1 / Board2 Error
-
-| 값 | 이름 | 의미 |
-|---:|---|---|
-| `0` | `ERR_NONE` | 정상 |
-| `1` | `ERR_INVALID_CMD` | 잘못된 명령 |
-| `2` | `ERR_LIMIT_SWITCH_DETECTED` | limit switch 감지 또는 예약 |
-| `3` | `ERR_DRIVER_FAULT` | driver fault |
-| `4` | `ERR_HOMING_FAIL` | homing 실패 또는 예약 |
-| `5` | `ERR_QUEUE_FULL` | trajectory queue full |
-| `6` | `ERR_RESERVED` | 예약 |
-
-### 9.3 Board3 State
-
-| 값 | 이름 | 설명 |
-|---:|---|---|
-| `0` | `STATE_INIT` | 초기화 중 |
-| `1` | `STATE_IDLE` | 대기 상태 |
-| `2` | `STATE_STAGING` | 9개 frame 수집 중 |
-| `3` | `STATE_MOVING` | 명령 처리 또는 이동 중 |
-| `4` | `STATE_ERROR` | 에러 발생 |
-| `5` | `STATE_ESTOP` | 비상정지 상태 |
-| `6` | `STATE_DISABLED` | Disable 상태 |
-
-### 9.4 Board3 Error
-
-| 값 | 이름 | 의미 |
-|---:|---|---|
-| `0` | `ERR_NONE` | 정상 |
-| `1` | `ERR_INVALID_CMD` | 잘못된 명령 |
-| `2` | `ERR_INVALID_MOTOR_ID` | Motor ID 범위 오류 |
-| `3` | `ERR_DUPLICATE_MOTOR_ID` | command set 안에서 Motor ID 중복 |
-| `4` | `ERR_STAGING_TIMEOUT` | 9개 frame 수집 timeout |
-| `5` | `ERR_DURATION_MISMATCH` | 9개 frame duration 불일치 |
-| `6` | `ERR_ANGLE_RANGE` | 목표 각도 범위 초과 |
-| `7` | `ERR_SERVO_COMM` | servo 통신 오류 |
-| `8` | `ERR_SERVO_FAULT` | servo fault 또는 과부하 |
-| `9` | `ERR_ESTOP` | ESTOP 상태 |
-| `10` | `ERR_DISABLED` | Disable 상태에서 command 수신 |
-
----
-
-## 10. Bring-Up 확인 순서
-
-### 10.1 통신 확인
-
-```bash
-ip -details -statistics link show can0
-candump can0 -tz
-```
-
-정상 수신 예:
-
-```text
-201  Board1 status
-202  Board2 status
-203  Board3 status
-301  Board1 position feedback
-302  Board2 position feedback
-303  Board3 position feedback
-```
-
-Board2/Board3만 연결한 경우에는 `202`, `203`, `302`, `303`만 보여도
-해당 보드의 송신 통신은 정상이다.
-
-### 10.2 Enable / Homing / Clear
-
-```bash
-# 전체 enable
-cansend can0 010#0100000000000000
-
-# Board1+Board2 stepper homing
-cansend can0 020#FF00000000000000
-
-# Board3 gripper home posture
-cansend can0 023#FF00000000000000
-
-# 전체 clear error
-cansend can0 030#FF00000000000000
-```
-
-### 10.3 Board2 단독 명령 예
-
-```bash
-# base_joint를 30.00도로 50ms 이동
-cansend can0 102#80B80B0000E8030A
-```
-
-### 10.4 Board3 단독 명령 예
-
-```bash
-# gripper 전체 0.00도, target load 500, duration 100ms
-cansend can0 103#8000000000F40114
-cansend can0 103#8100000000F40114
-cansend can0 103#8200000000F40114
-cansend can0 103#8300000000F40114
-cansend can0 103#8400000000F40114
-cansend can0 103#8500000000F40114
-cansend can0 103#8600000000F40114
-cansend can0 103#8700000000F40114
-cansend can0 103#8800000000F40114
-```
-
----
-
-## 11. ROS / arm_can_bridge 구현 요구사항
-
-`arm_can_bridge`는 이 문서 기준으로 다음 frame을 생성해야 한다.
-
-| 기능 | CAN frame |
-|---|---|
-| Enable | `010#0100000000000000` |
-| Disable | `010#0000000000000000` |
-| Stepper homing | `020#FF00000000000000` |
-| Gripper home posture | `023#FF00000000000000` |
-| Clear error | `030#FF00000000000000` |
-| ESTOP | `001#0100000000000000` |
-| Board1 move | `0x101`, payload local motor id `0~3` |
-| Board2 move | `0x102`, payload local motor id `0` |
-| Board3 move | `0x103`, payload local motor id `0~8`, Byte5~6 target load |
-
-`0x303` feedback parser는 Byte7이 `0x00`이어도 위치값을 정상 처리해야 한다.
-
----
-
-## 12. 최종 체크리스트
-
-```text
-1. payload에 Board ID를 넣지 않는다.
-2. Board 구분은 CAN ID로 한다.
-3. 0x010 Enable/Disable은 Byte0만 사용한다.
-4. 0x020은 Board1+Board2 stepper homing이다.
-5. Board3 home posture는 0x023이다.
-6. 0x030 Clear Error는 Byte0=0xFF만 사용한다.
-7. Board1 0x101은 4-frame staging이다.
-8. Board3 0x103은 9-frame staging이다.
-9. Board3 0x103 Byte5~6은 본 프로젝트에서 Target Load로 확장한다.
-10. 0x203은 Board3 status이고 위치는 0x303으로 보낸다.
-11. 0x303 Byte7=0x00도 정상 feedback으로 처리한다.
-```
+정상 순서는 Board1 4-frame staging → Board1 READY → Board2 legacy frame 1개 →
+Board1 START 한 번 → Board1 STARTED → 양쪽 Status 완료다. READY 전에 Board2
+frame이나 START를 보내지 않는다.
+
+Board1 READY가 250 ms 안에 없으면 같은 ID/value/duration으로 4개 frame 전체를
+재전송하며 최대 200회다. Board1의 full-mask DUPLICATE는 READY ACK 유실 복구로
+취급한다. CANCEL은 미송신 batch 제거와 현재 writer 완료 뒤 Board1에 전송하고
+Board1 CANCELLED를 기다린다. Board2는 CANCEL을 처리하지 않으므로 이미 받은
+legacy target은 계속 수행한다. 서버는 그 뒤 Board2의 fresh IDLE/reached 및
+`queueFreeCount=32`까지 기다려 새 goal을 격리한다. 다음 goal은 새 V3 ID를
+사용한다.
+
+서버 시작/재연결 시 임의 goal ID로 CANCEL probe를 보내지 않는다. 대신 양쪽의
+fresh status가 각각의 형식으로 검증될 때까지 Move를 차단한다. 재시작 뒤 Board1의
+`goal_slot_free=0`인 소유자 불명 goal은 자동 CANCEL하지 않으며, 실제 새 goal에
+BUSY가 오면 status와 원문 ACK를 기록하고 즉시 실패로 돌려준다.
+
+## ACK/NACK
+
+Board1 `0x401`, DLC 8이다. Board2 legacy firmware는 ACK를 송신하지 않는다.
+
+| Byte | 의미 |
+|---:|---|
+| 0 | protocol version, 반드시 3 |
+| 1 | result: READY=0, STARTED=1, DUPLICATE=2, BUSY=3, STAGING_TIMEOUT=4, CONFLICT=5, CANCELLED=6, INVALID=7 |
+| 2 | goal ID |
+| 3 | received mask: Board1 `0..0x0F` |
+| 4 | state snapshot |
+| 5 | reserved 0 |
+| 6~7 | duration echo uint16 little-endian |
+
+BUSY goal은 queue하거나 timeout retry하지 않는다. STAGING_TIMEOUT은 누락 mask를
+기록하고 Board1 전체 batch를 재전송한다. CONFLICT/INVALID는 동일 payload를
+재시도하지 않고, 서버가 소유한 동일 goal에 한해 Board1 CANCEL로 부분 staging을
+정리한다. 모든 ACK는 board/version/goal/duration/mask를 함께 검증하며 stale ACK는
+현재 goal 증거를 덮지 않는다. READY/STARTED/CANCELLED 판정도 Board1 ACK에만
+적용한다.
+
+## Status `0x201/0x202`
+
+| Byte | 의미 |
+|---:|---|
+| 0 | state: INIT=0, IDLE=1, HOMING=2, MOVING=3, ERROR=4, ESTOP=5, DISABLED=6 |
+| 1 | error |
+| 2~3 | 축별 4-bit flags: valid=bit0, ready=bit1, moving=bit2, reached=bit3 |
+| 4 | limit bits |
+| 5 | Board1 `goal_slot_free`는 0/1, Board2 `queueFreeCount`는 0..32 |
+| 6 | enabled |
+| 7 | status sequence |
+
+Board1 Byte5는 V3 goal slot이라 0 또는 1이어야 한다. Board2 Byte5는 legacy queue
+free count이므로 정상 유휴 상태가 32이며 `0..32`를 허용한다. 각 status frame의
+state/error/masks/slot/sequence를 하나의 원자적 snapshot으로 저장한다. Board1
+mask는 `0..0x0F`, Board2는 `0..0x01`을 넘을 수 없다.
+
+Board1/2의 `error > 6` 또는 Board1의 `(limit bits & 0xF0) != 0`은
+프로토콜상 불가능한 status로 간주해 해당 frame만 폐기한다. 이 frame은
+최신 정상 status와 수신 시각을 덮어쓰지 않으며, 단일 비정상 frame으로
+goal을 즉시 ABORT하지 않는다. 다만 정상 status가 communication timeout 이상
+끊기면 기존 heartbeat timeout으로 중단한다.
+
+완료는 Board1 STARTED 뒤 다음 조건을 모두 만족해야 한다.
+
+- Board1/2 state IDLE, error 0, moving mask 0
+- Board1 reached `0x0F`, Board2 reached `0x01`
+- Board1 `goal_slot_free=1`, Board2 `queueFreeCount=32`
+- 양쪽 heartbeat가 1초 이내
+
+요청 duration보다 실제 이동이 길어도 정상 MOVING heartbeat가 계속되면 기다린다.
+`duration + grace`만으로 CANCEL하지 않는다.
+
+## Single writer, latest target, E-stop
+
+ROS/웹 callback은 SocketCAN에 직접 쓰지 않는다. 서비스, Board1/2 goal,
+Board3 streamer 모두 단일 serialized writer를 지나며 각 `send()`의 full-frame
+성공을 확인한다. `ENOBUFS/EAGAIN`은 frame 단위로 제한 재시도하고 short write는
+실패다. READY clock은 writer가 해당 board batch를 모두 보낸 직후 시작한다.
+
+웹 수동 arm 입력은 latest-target-wins다. 활성 target과 같으면 dedupe하고, 다른
+target이면 Board1 CANCELLED를 기다리는 동안 pending target 하나만 갱신한 뒤
+마지막 target만 새 goal ID로 보낸다. 다만 Board2 legacy에는 CANCEL/ACK가 없으므로
+이미 받아들인 Board2 target은 취소되지 않고 끝까지 수행한다. Board2가 완전히
+IDLE이 된 뒤 마지막 pending target을 보내므로 동시 preemption은 제공하지 않지만
+이전 Board2 동작 뒤에 새 명령이 몰래 queue되지는 않는다.
+
+retry 횟수와 모든 runtime timeout은
+`src/arm_can_bridge/config/retry_timeout.yaml` 한 파일에서 조정한다. 운영 기본값은
+Board1 READY 250 ms × 200회이며, Board2 legacy에는 READY retry를 적용하지
+않는다. BUSY/INVALID/CONFLICT에도 retry profile을 적용하지 않는다. 파일명에
+`_ms`가 붙은 값의 단위는 millisecond다. 중앙 미션의 단계별 timeout/retry는 별도 실행 계층인
+`src/mission_manager/config/action_servers.yaml`에서 action별로 조정한다.
+
+E-stop은 `001#0100000000000000`을 writer 최우선으로 보낸다. 아직 송신되지 않은
+goal/START/CANCEL을 제거하고 active goal을 `ABORTED_BY_ESTOP`으로 끝내지만
+`010#00...` Disable은 보내지 않는다. 이는 안전 인증 STO가 아닌 software
+powered-hold이며 기존 enable/holding torque 상태를 유지한다. encoder 없는
+stepper는 급정지 때 탈조할 수 있으므로 표시 위치는 명령 기반 추정값이다.
+Enable 또는 Clear Error 뒤 이전 goal은 자동 재시작하지 않는다.
+
+## Position feedback
+
+`0x301`은 signed int16 little-endian 4개로 motor0→`arm_joint_1`, motor1→
+`arm_joint_2`, motor2→`arm_joint_3`, motor3→`base_joint`이다. `0x302`의 첫
+int16은 `arm_joint_4`이고 나머지는 reserved다. 단위는 0.01°다.
+
+## Board3 불변 범위
+
+Board3 gripper는 기존 `0x103/0x203/0x303` 계약과 9-frame staging을 유지한다.
+Board2와 Board3는 공용 `pack_position_command()`를 사용하지만 Board3의 Byte5~6
+target-load와 9-frame staging은 Board2 계약과 별개다. Board1만 전용
+`pack_arm_goal_v3()`를 사용한다.
+
+## ROS API 안전 경고
+
+팔 입력은 `/arm_controller/execute_joint_goal`의 `ExecuteArmGoal` Action이다.
+motion 필드는 joint name 5개, 최종 radians 5개, `duration_ms` 하나다. 웹 경로는
+진단용 `request_id`, `web_created_unix_ms`, `gui_received_unix_ms`도 채워 T0/T1을
+CAN T2~T7 기록과 연결한다. 최종각 직행은 MoveIt 충돌 회피 waypoint를 보존하지
+않으므로, 검증된 named joint pose와 서버 joint limit 검사를 통과한 목표에만
+사용한다. MoveIt 계획의 마지막 point를 호환 경로로 재사용하지 않는다. Board3만 기존
+`/gripper_controller/follow_joint_trajectory`를 유지한다.

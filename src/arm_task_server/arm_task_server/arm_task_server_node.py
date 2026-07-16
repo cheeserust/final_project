@@ -18,23 +18,23 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from trajectory_msgs.msg import JointTrajectoryPoint
-from vicpinky_interfaces.action import RunTask
+from vicpinky_interfaces.action import ExecuteArmGoal, RunTask
 import yaml
 
 
 DEFAULT_CONTROLLER_WAIT_TIMEOUT_SEC = 5.0
-DEFAULT_COMPLETION_GRACE_SEC = 5.0
 FUTURE_POLL_PERIOD_SEC = 0.02
 
 
 @dataclass(frozen=True)
 class ControllerConfig:
-    """Configuration for one FollowJointTrajectory action target."""
+    """Configuration for one direct-arm or Board3 trajectory target."""
 
     name: str
     action_name: str
     joint_names: tuple[str, ...]
     default_duration_sec: float
+    interface: str = 'follow_joint_trajectory'
 
 
 def parse_extra_json(raw: str) -> dict[str, Any]:
@@ -89,11 +89,6 @@ class ArmTaskServer(Node):
             'controller_wait_timeout_sec',
             DEFAULT_CONTROLLER_WAIT_TIMEOUT_SEC,
         )
-        self.declare_parameter(
-            'completion_grace_sec',
-            DEFAULT_COMPLETION_GRACE_SEC,
-        )
-
         config_file = (
             self.get_parameter('config_file')
             .get_parameter_value()
@@ -104,7 +99,11 @@ class ArmTaskServer(Node):
         self._controller_clients = {
             name: ActionClient(
                 self,
-                FollowJointTrajectory,
+                (
+                    ExecuteArmGoal
+                    if controller.interface == 'direct_arm_v3'
+                    else FollowJointTrajectory
+                ),
                 controller.action_name,
                 callback_group=self._callback_group,
             )
@@ -155,6 +154,9 @@ class ArmTaskServer(Node):
                 joint_names=joint_names,
                 default_duration_sec=float(
                     raw_config.get('default_duration_sec', 1.0)
+                ),
+                interface=str(
+                    raw_config.get('interface', 'follow_joint_trajectory')
                 ),
             )
 
@@ -420,14 +422,10 @@ class ArmTaskServer(Node):
             return False, f'Goal rejected by {controller.action_name}'
 
         result_future = controller_goal_handle.get_result_async()
-        result_timeout = max(
-            0.1,
-            float(duration_sec) + self._completion_grace_sec(),
-        )
         ok, message = self._wait_for_future(
             result_future,
             goal_handle,
-            result_timeout,
+            None,
         )
         if not ok:
             self._cancel_controller_goal(controller_goal_handle)
@@ -438,7 +436,12 @@ class ArmTaskServer(Node):
             return False, f'No result from {controller.action_name}'
 
         result = result_response.result
-        if result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
+        if controller.interface == 'direct_arm_v3':
+            if not result.success:
+                return False, (
+                    f'{controller.action_name} failed: {result.message}'
+                )
+        elif result.error_code != FollowJointTrajectory.Result.SUCCESSFUL:
             return False, (
                 f'{controller.action_name} failed: '
                 f'error_code={result.error_code}, '
@@ -453,7 +456,19 @@ class ArmTaskServer(Node):
         positions_rad: Sequence[float],
         duration_sec: float,
         target_load_raw,
-    ) -> FollowJointTrajectory.Goal:
+    ):
+        if controller.interface == 'direct_arm_v3':
+            if target_load_raw is not None:
+                raise ValueError('Direct arm goal does not accept target load')
+            duration_ms = round(float(duration_sec) * 1000.0)
+            if not 1 <= duration_ms <= 0xFFFF:
+                raise ValueError('Arm duration must be 1..65535 ms')
+            goal = ExecuteArmGoal.Goal()
+            goal.joint_names = list(controller.joint_names)
+            goal.positions = [float(value) for value in positions_rad]
+            goal.duration_ms = int(duration_ms)
+            return goal
+
         goal = FollowJointTrajectory.Goal()
         goal.trajectory.joint_names = list(controller.joint_names)
 
@@ -477,14 +492,18 @@ class ArmTaskServer(Node):
         self,
         future,
         goal_handle,
-        timeout_sec: float,
+        timeout_sec: float | None,
     ) -> tuple[bool, str]:
-        deadline = time.monotonic() + max(0.0, timeout_sec)
+        deadline = (
+            None
+            if timeout_sec is None
+            else time.monotonic() + max(0.0, timeout_sec)
+        )
 
         while rclpy.ok() and not future.done():
             if goal_handle.is_cancel_requested:
                 return False, 'Canceled while waiting for controller result'
-            if time.monotonic() >= deadline:
+            if deadline is not None and time.monotonic() >= deadline:
                 return False, 'Timeout waiting for controller result'
             time.sleep(FUTURE_POLL_PERIOD_SEC)
 
@@ -512,9 +531,6 @@ class ArmTaskServer(Node):
         return float(
             self.get_parameter('controller_wait_timeout_sec').value
         )
-
-    def _completion_grace_sec(self) -> float:
-        return float(self.get_parameter('completion_grace_sec').value)
 
 
 def main(args=None) -> None:

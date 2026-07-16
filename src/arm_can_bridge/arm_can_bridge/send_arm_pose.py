@@ -1,4 +1,4 @@
-"""Send one arm FollowJointTrajectory target pose from the command line."""
+"""Send one direct Board1 V3 + Board2 legacy target from the CLI."""
 
 from __future__ import annotations
 
@@ -8,15 +8,14 @@ import sys
 import time
 from typing import Sequence
 
-from control_msgs.action import FollowJointTrajectory
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
-from trajectory_msgs.msg import JointTrajectoryPoint
+from vicpinky_interfaces.action import ExecuteArmGoal
 
 
-ARM_ACTION_NAME = '/arm_controller/follow_joint_trajectory'
+ARM_ACTION_NAME = '/arm_controller/execute_joint_goal'
 JOINT_STATES_TOPIC = '/joint_states'
 CURRENT_POSITION_TIMEOUT_SEC = 3.0
 
@@ -30,10 +29,10 @@ ARM_JOINT_NAMES = [
 
 ARM_MIN_POSITIONS_RAD = [
     math.radians(-90.0),
+    math.radians(-86.5),
+    math.radians(-78.1),
+    math.radians(-91.5),
     math.radians(-90.0),
-    math.radians(-80.0),
-    math.radians(-90.0),
-    math.radians(-170.0),
 ]
 
 ARM_MAX_POSITIONS_RAD = [
@@ -41,7 +40,7 @@ ARM_MAX_POSITIONS_RAD = [
     math.radians(90.0),
     math.radians(80.0),
     math.radians(90.0),
-    math.radians(170.0),
+    math.radians(90.0),
 ]
 
 
@@ -59,7 +58,7 @@ class ArmPoseClient(Node):
         self._joint_states_topic = str(joint_states_topic)
         self._client = ActionClient(
             self,
-            FollowJointTrajectory,
+            ExecuteArmGoal,
             self._action_name,
         )
 
@@ -93,7 +92,7 @@ class ArmPoseClient(Node):
                 raise RuntimeError('target_positions_rad is required')
 
             self._validate_target(target)
-            return self._send_goal(current, target, duration_s)
+            return self._send_goal(target, duration_s)
         except RuntimeError as exc:
             self.get_logger().error(str(exc))
             return 1
@@ -170,16 +169,16 @@ class ArmPoseClient(Node):
 
     def _send_goal(
         self,
-        current: Sequence[float],
         target: Sequence[float],
         duration_s: float,
     ) -> int:
-        goal = FollowJointTrajectory.Goal()
-        goal.trajectory.joint_names = list(ARM_JOINT_NAMES)
-        goal.trajectory.points = [
-            self._point(current, 0.0),
-            self._point(target, duration_s),
-        ]
+        duration_ms = round(float(duration_s) * 1000.0)
+        if not 1 <= duration_ms <= 0xFFFF:
+            raise RuntimeError('duration must be 1..65535 ms')
+        goal = ExecuteArmGoal.Goal()
+        goal.joint_names = list(ARM_JOINT_NAMES)
+        goal.positions = [float(value) for value in target]
+        goal.duration_ms = int(duration_ms)
 
         self.get_logger().info(
             'Target arm degrees: '
@@ -202,30 +201,15 @@ class ArmPoseClient(Node):
         result = result_future.result().result
 
         self.get_logger().info(
-            f'arm result error_code={result.error_code}, '
-            f'error_string={result.error_string}'
+            f'arm result success={result.success}, message={result.message}'
         )
-        return 0 if result.error_code == 0 else 2
-
-    @staticmethod
-    def _point(
-        positions: Sequence[float],
-        time_from_start_s: float,
-    ) -> JointTrajectoryPoint:
-        point = JointTrajectoryPoint()
-        point.positions = [float(value) for value in positions]
-        whole_seconds = int(time_from_start_s)
-        point.time_from_start.sec = whole_seconds
-        point.time_from_start.nanosec = int(
-            (time_from_start_s - whole_seconds) * 1_000_000_000
-        )
-        return point
+        return 0 if result.success else 2
 
     def _feedback_callback(self, msg) -> None:
         feedback = msg.feedback
         self.get_logger().info(
-            'arm feedback actual degrees='
-            f'{[round(math.degrees(value), 3) for value in feedback.actual.positions]}'
+            f'arm feedback goal={feedback.goal_id} '
+            f'phase={feedback.phase} detail={feedback.detail}'
         )
 
 

@@ -12,6 +12,7 @@ from arm_can_bridge.can_protocol import (
     pack_clear_error,
     pack_enable,
     pack_estop,
+    pack_gripper_home,
     pack_homing,
     pack_position_command,
     unpack_board3_position_feedback,
@@ -365,7 +366,7 @@ def test_board3_homing_creates_zero_degree_home_posture():
 
     assert model.commanded_angle_raw == [2500] * 9
 
-    model.handle_frame(pack_homing(board_id=BOARD_ID_BOARD3))
+    model.handle_frame(pack_gripper_home())
     status = status_of(model)
 
     assert status.state == BoardState.MOVING

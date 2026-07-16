@@ -1,6 +1,7 @@
 controllers:
   arm:
-    action_name: /arm_controller/follow_joint_trajectory
+    action_name: /arm_controller/execute_joint_goal
+    interface: direct_arm_v3
     default_duration_sec: 2.0
     joints:
       - base_joint
@@ -11,6 +12,7 @@ controllers:
 
   gripper:
     action_name: /gripper_controller/follow_joint_trajectory
+    interface: follow_joint_trajectory
     default_duration_sec: 1.0
     joints:
       - finger_1_base_joint

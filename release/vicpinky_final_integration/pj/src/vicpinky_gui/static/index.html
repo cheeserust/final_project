@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VicPinky Control</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark">VP</div>
+      <div class="brand-copy">
+        <h1>VicPinky Control</h1>
+        <div id="connectionStatus" class="connection-pill">Connecting</div>
+      </div>
+      <button id="estopTopButton" class="danger-button" type="button" title="Emergency stop">
+        ESTOP
+      </button>
+    </header>
+
+    <main class="dashboard">
+      <section class="panel overview-panel">
+        <div class="overview-grid">
+          <article id="overviewConnectionCard" class="overview-card neutral">
+            <div class="overview-label">Robot Link</div>
+            <div id="overviewConnectionState" class="overview-value">Waiting</div>
+            <div id="overviewConnectionMeta" class="overview-meta">No heartbeat</div>
+          </article>
+          <article id="overviewMissionCard" class="overview-card neutral">
+            <div class="overview-label">Mission</div>
+            <div id="overviewMissionState" class="overview-value">Idle</div>
+            <div id="overviewMissionMeta" class="overview-meta">Progress 0%</div>
+          </article>
+          <article id="overviewTaskCard" class="overview-card neutral">
+            <div class="overview-label">Active Task</div>
+            <div id="overviewActiveTask" class="overview-value">-</div>
+            <div id="overviewTaskMeta" class="overview-meta">No active task</div>
+          </article>
+          <article id="overviewButtonCard" class="overview-card neutral">
+            <div class="overview-label">Button Task</div>
+            <div id="overviewButtonState" class="overview-value">Idle</div>
+            <div id="overviewButtonMeta" class="overview-meta">No button action</div>
+          </article>
+          <article id="overviewRecoveryCard" class="overview-card neutral">
+            <div class="overview-label">Recovery</div>
+            <div id="overviewRecoveryState" class="overview-value">No Gap</div>
+            <div id="overviewRecoveryMeta" class="overview-meta">No disconnect window</div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel driving-map-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Driving Map</h2>
+            <div id="drivingMapMeta" class="meta-line">Waiting for /map</div>
+          </div>
+          <div class="driving-map-actions">
+            <button id="initialPoseButton" class="secondary-button" type="button">
+              Set Pose
+            </button>
+            <div id="drivingStateChip" class="status-chip neutral">Waiting</div>
+          </div>
+        </div>
+
+        <div class="driving-map-layout">
+          <div class="map-canvas-wrap">
+            <canvas id="drivingMapCanvas" width="960" height="560"></canvas>
+            <div id="initialPoseHint" class="map-hint">Set Pose: drag on map</div>
+          </div>
+          <dl class="status-list compact-status driving-status-list">
+            <div>
+              <dt>Pose</dt>
+              <dd id="drivingPose">-</dd>
+            </div>
+            <div>
+              <dt>Odom</dt>
+              <dd id="drivingOdom">-</dd>
+            </div>
+            <div>
+              <dt>Map</dt>
+              <dd id="drivingMapInfo">-</dd>
+            </div>
+            <div>
+              <dt>Path</dt>
+              <dd id="drivingPathInfo">-</dd>
+            </div>
+            <div>
+              <dt>State</dt>
+              <dd id="drivingNavState">-</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <div class="dashboard-column dashboard-column-main">
+        <section class="panel mission-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Mission Command</h2>
+              <div id="missionState" class="meta-line">No status</div>
+            </div>
+            <div id="missionReady" class="status-chip neutral">Action</div>
+          </div>
+
+          <form id="missionForm" class="mission-form">
+            <label>
+              Mission ID
+              <input id="missionId" name="mission_id" autocomplete="off">
+            </label>
+            <label>
+              Object
+              <input id="objectLabel" name="object_label" value="object_1" readonly>
+            </label>
+            <label>
+              Arm Task
+              <select id="armTaskName" name="arm_task_name" required></select>
+            </label>
+            <label>
+              Pickup
+              <select id="pickupLocation" name="pickup_location"></select>
+            </label>
+            <label>
+              Delivery
+              <select id="deliveryLocation" name="delivery_location"></select>
+            </label>
+            <label>
+              Floor
+              <input id="targetFloor" name="target_floor" type="number" value="5" readonly>
+            </label>
+            <div class="form-actions">
+              <button id="startMissionButton" class="primary-button" type="submit">
+                Start
+              </button>
+              <button id="cancelMissionButton" class="secondary-button" type="button">
+                Cancel
+              </button>
+            </div>
+          </form>
+
+          <div class="progress-wrap">
+            <div class="progress-row">
+              <span>Progress</span>
+              <strong id="missionProgressText">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="missionProgressBar" class="progress-bar"></div>
+            </div>
+          </div>
+
+          <div class="fsm-wrap">
+            <div class="fsm-heading">
+              <span>Mission FSM</span>
+              <strong id="elevatorFsmState">-</strong>
+            </div>
+            <div id="elevatorFsmSteps" class="fsm-steps"></div>
+          </div>
+
+          <dl class="status-list">
+            <div>
+              <dt>Task</dt>
+              <dd id="missionTask">-</dd>
+            </div>
+            <div>
+              <dt>Message</dt>
+              <dd id="missionMessage">-</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd id="missionResult">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel nav-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Direct Drive</h2>
+              <div id="navState" class="meta-line">No direct navigation</div>
+            </div>
+            <div id="navReady" class="status-chip neutral">Action</div>
+          </div>
+
+          <form id="navForm" class="nav-form">
+            <label>
+              Current Floor
+              <select id="navFloor" name="target_floor"></select>
+            </label>
+            <label>
+              Saved Point
+              <select id="navLocation" name="location_name"></select>
+            </label>
+            <div class="nav-actions">
+              <button id="startNavButton" class="primary-button" type="submit">
+                Go
+              </button>
+              <button id="cancelNavButton" class="secondary-button" type="button">
+                Cancel
+              </button>
+            </div>
+          </form>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>Target</dt>
+              <dd id="navTarget">-</dd>
+            </div>
+            <div>
+              <dt>Feedback</dt>
+              <dd id="navFeedback">-</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd id="navResult">-</dd>
+            </div>
+          </dl>
+        </section>
+
+      </div>
+
+      <div class="dashboard-column dashboard-column-side">
+        <section class="panel button-task-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Elevator Button Task</h2>
+              <div id="buttonTaskMeta" class="meta-line">Waiting for mission events</div>
+            </div>
+            <div id="buttonTaskChip" class="status-chip neutral">Idle</div>
+          </div>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>State</dt>
+              <dd id="buttonTaskState">-</dd>
+            </div>
+            <div>
+              <dt>Floor</dt>
+              <dd id="buttonTaskTargetFloor">-</dd>
+            </div>
+            <div>
+              <dt>Motion</dt>
+              <dd id="buttonTaskMotionResult">-</dd>
+            </div>
+            <div>
+              <dt>Physical</dt>
+              <dd id="buttonTaskPhysicalResult">UNKNOWN</dd>
+            </div>
+            <div>
+              <dt>Started</dt>
+              <dd id="buttonTaskStarted">-</dd>
+            </div>
+            <div>
+              <dt>Last Event</dt>
+              <dd id="buttonTaskLastEvent">-</dd>
+            </div>
+            <div>
+              <dt>Arm Fault</dt>
+              <dd id="buttonTaskArmFault">-</dd>
+            </div>
+            <div>
+              <dt>Gripper</dt>
+              <dd id="buttonTaskGripperFault">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel link-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Robot Link</h2>
+              <div id="robotLinkDetail" class="meta-line">Waiting for heartbeat</div>
+            </div>
+            <div id="robotLinkState" class="status-chip neutral">Waiting</div>
+          </div>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>Last Seen</dt>
+              <dd id="robotLastSeen">-</dd>
+            </div>
+            <div>
+              <dt>Heartbeat</dt>
+              <dd id="robotHeartbeatAge">-</dd>
+            </div>
+            <div>
+              <dt>Last State</dt>
+              <dd id="robotLastMissionState">-</dd>
+            </div>
+            <div>
+              <dt>Last Task</dt>
+              <dd id="robotLastTask">-</dd>
+            </div>
+            <div>
+              <dt>Progress</dt>
+              <dd id="robotLastProgress">-</dd>
+            </div>
+            <div>
+              <dt>Gap</dt>
+              <dd id="robotDisconnectedDuration">-</dd>
+            </div>
+          </dl>
+
+          <div class="disconnect-summary">
+            <h3>Events During Last Disconnect</h3>
+            <ul id="disconnectEvents" class="mini-event-list"></ul>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel arm-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Arm Board</h2>
+            <div id="armAge" class="meta-line">No board status</div>
+          </div>
+          <button id="statusButton" class="icon-button" type="button" title="Refresh board status">
+            Status
+          </button>
+        </div>
+
+        <div class="command-bar">
+          <button data-arm-command="enable" type="button">Enable</button>
+          <button data-arm-command="disable" type="button">Disable</button>
+          <button data-arm-command="home_all" type="button">Home</button>
+          <button data-arm-command="clear_error" type="button">Clear</button>
+          <button data-arm-command="estop" class="danger-command" type="button">ESTOP</button>
+        </div>
+
+        <div id="boardGrid" class="board-grid"></div>
+      </section>
+
+      <section class="panel manual-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Manual Servo Control</h2>
+            <div id="manualStatus" class="meta-line">No manual command</div>
+          </div>
+          <div id="manualReady" class="status-chip neutral">Waiting</div>
+        </div>
+
+        <div class="manual-layout">
+          <div id="manualArmSection" class="manual-section">
+            <div class="manual-section-heading">
+              <div>
+                <h3>Arm</h3>
+                <span id="manualArmMeta">Action status unknown</span>
+              </div>
+              <button id="useCurrentArmButton" class="secondary-button" type="button">
+                Use Current
+              </button>
+            </div>
+            <div id="armManualControls" class="manual-control-grid"></div>
+            <div class="manual-actions">
+              <label>
+                Duration
+                <input id="manualArmDuration" type="number" min="0.1" max="30" step="0.1" value="2.0">
+              </label>
+              <button id="sendArmManualButton" class="primary-button" type="button">
+                Send Arm
+              </button>
+            </div>
+          </div>
+
+          <div id="manualGripperSection" class="manual-section">
+            <div class="manual-section-heading">
+              <div>
+                <h3>Gripper</h3>
+                <span id="manualGripperMeta">Action status unknown</span>
+              </div>
+              <button id="useCurrentGripperButton" class="secondary-button" type="button">
+                Use Current
+              </button>
+            </div>
+            <div id="gripperManualControls" class="manual-control-grid gripper-grid"></div>
+            <div class="manual-actions gripper-actions">
+              <label>
+                Duration
+                <input id="manualGripperDuration" type="number" min="0.1" max="30" step="0.1" value="1.0">
+              </label>
+              <label>
+                Load
+                <input id="manualGripperLoad" type="number" min="0" max="1023" step="1" value="500">
+              </label>
+              <button id="sendGripperManualButton" class="primary-button" type="button">
+                Send Gripper
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel joint-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Joint States</h2>
+            <div id="jointAge" class="meta-line">No joint state</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="joint-table">
+            <thead>
+              <tr>
+                <th>Joint</th>
+                <th>Rad</th>
+                <th>Deg</th>
+              </tr>
+            </thead>
+            <tbody id="jointTableBody">
+              <tr>
+                <td colspan="3">No data</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel flow-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Mission Flow</h2>
+            <div id="flowMeta" class="meta-line">Configured steps</div>
+          </div>
+        </div>
+        <ol id="flowList" class="flow-list"></ol>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="panel-heading">
+          <div>
+            <h2>Event Log</h2>
+            <div id="serverTime" class="meta-line">-</div>
+          </div>
+          <div id="logSyncState" class="status-chip neutral">Snapshot</div>
+        </div>
+        <div class="log-columns">
+          <div>
+            <h3>Control</h3>
+            <ul id="eventLog" class="log-list"></ul>
+          </div>
+          <div>
+            <h3>Mission Events</h3>
+            <ul id="missionEventLog" class="log-list"></ul>
+          </div>
+          <div>
+            <h3>Sync Replay</h3>
+            <ul id="syncEventLog" class="log-list"></ul>
+          </div>
+          <div>
+            <h3>Board Status</h3>
+            <ul id="armLog" class="log-list"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

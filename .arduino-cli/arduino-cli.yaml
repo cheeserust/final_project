@@ -1,0 +1,8 @@
+board_manager:
+    additional_urls: []
+build_cache:
+    path: /home/sj/vicpinky_server_ws/.arduino-cli/build-cache
+directories:
+    data: /home/sj/vicpinky_server_ws/.arduino-cli/data
+    downloads: /home/sj/vicpinky_server_ws/.arduino-cli/downloads
+    user: /home/sj/vicpinky_server_ws/.arduino-cli/user

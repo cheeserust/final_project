@@ -1,0 +1,54 @@
+aruco_targets:
+  50:
+    name: "elevator_up_button"
+    type: "button"
+    action: "press"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.10]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.12]
+
+  51:
+    name: "floor_4_button"
+    type: "button"
+    action: "press"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.10]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.12]
+
+  52:
+    name: "floor_5_button"
+    type: "button"
+    action: "press"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.10]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.12]
+
+  53:
+    name: "elevator_down_button"
+    type: "button"
+    action: "press"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.10]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.12]
+
+  54:
+    name: "object_1"
+    type: "object"
+    action: "pick"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.12]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.18]
+
+  55:
+    name: "object_2"
+    type: "object"
+    action: "pick"
+    marker_size_m: 0.05
+    pre_offset_m: [0.00, 0.00, 0.12]
+    target_offset_m: [0.00, 0.00, 0.03]
+    retreat_offset_m: [0.00, 0.00, 0.18]

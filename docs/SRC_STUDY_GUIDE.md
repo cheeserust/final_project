@@ -1,5 +1,10 @@
 # src 코드 공부 가이드
 
+> Board1/2 팔 경로는 V3 direct joint-goal로 변경되었다. 아래 legacy
+> `FollowJointTrajectory`, Queue Free, waypoint converter/streamer 설명 중 arm에
+> 관한 내용은 더 이상 실행 경로가 아니며 Board3 gripper에만 해당한다. 현재 팔
+> 구현은 `arm_goal_v3.py`, `can_writer.py`, `ExecuteArmGoal.action`을 기준으로 본다.
+
 이 문서는 `src/` 아래 패키지와 파일을 팀원에게 설명할 수 있을 정도로 공부하기 위한 노트다.
 
 읽는 순서는 아래처럼 잡으면 좋다.
@@ -387,7 +392,8 @@ ros2 run mission_manager send_mission \
   --pickup-location room_402 \
   --delivery-location room_501 \
   --target-floor 5 \
-  --object cup
+  --object cup \
+  --arm-task-name pick_object_2
 ```
 
 ### 5.3 `mock_task_servers`
@@ -1133,7 +1139,7 @@ ros2 launch board1_simulator board1_simulator.launch.py
 
 ```bash
 source ~/vicpinky_server_ws/install/setup.bash
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch arm_can_bridge arm_can_bridge.launch.py execution_mode:=hardware
 ```
 
 터미널 3:
@@ -1329,7 +1335,7 @@ ros2 launch board1_simulator board1_simulator.launch.py
 arm bridge:
 
 ```bash
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch arm_can_bridge arm_can_bridge.launch.py execution_mode:=hardware
 ```
 
 test trajectory:

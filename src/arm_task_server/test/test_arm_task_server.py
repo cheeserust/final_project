@@ -94,3 +94,24 @@ def test_make_controller_goal_sets_gripper_effort_target_load():
     assert list(point.effort) == [500.0, 500.0]
     assert point.time_from_start.sec == 1
     assert point.time_from_start.nanosec == 250_000_000
+
+
+def test_make_arm_controller_goal_uses_direct_uint16_milliseconds():
+    controller = ControllerConfig(
+        name='arm',
+        action_name='/arm_controller/execute_joint_goal',
+        joint_names=('base_joint', 'arm_joint_1'),
+        default_duration_sec=1.0,
+        interface='direct_arm_v3',
+    )
+
+    goal = ArmTaskServer._make_controller_goal(
+        controller,
+        positions_rad=(0.1, 0.2),
+        duration_sec=5.0,
+        target_load_raw=None,
+    )
+
+    assert goal.joint_names == ['base_joint', 'arm_joint_1']
+    assert list(goal.positions) == [0.1, 0.2]
+    assert goal.duration_ms == 5000

@@ -1,0 +1,299 @@
+locations:
+  # 주행팀 SLAM map 기준 실제 좌표.
+  # yaw 단위는 radian이다.
+
+  dock_4f:
+    floor: 4
+    marker_id: -1
+    type: dock
+    pose:
+      frame_id: map
+      x: 3.748
+      y: -18.219
+      yaw: 0.0
+
+  dock:
+    floor: 4
+    marker_id: -1
+    type: dock
+    pose:
+      frame_id: map
+      x: 3.748
+      y: -18.219
+      yaw: 0.0
+
+  home_4f:
+    floor: 4
+    marker_id: -1
+    type: home
+    pose:
+      frame_id: map
+      x: 3.748
+      y: -18.219
+      yaw: 0.0
+
+  home:
+    floor: 4
+    marker_id: -1
+    type: home
+    pose:
+      frame_id: map
+      x: 3.748
+      y: -18.219
+      yaw: 0.0
+
+  elevator_front_4f:
+    floor: 4
+    marker_id: -1
+    type: navigation_goal
+    pose:
+      frame_id: map
+      x: 0.470
+      y: -0.455
+      yaw: 1.983
+
+  room_401:
+    floor: 4
+    marker_id: -1
+    type: delivery_zone
+    pose:
+      frame_id: map
+      x: -0.535
+      y: -10.839
+      yaw: 0.0
+
+  room_402:
+    floor: 4
+    marker_id: -1
+    type: pickup_zone
+    pose:
+      frame_id: map
+      x: 2.998
+      y: -12.433
+      yaw: 1.667
+
+  object:
+    floor: 4
+    marker_id: -1
+    type: pickup_zone
+    pose:
+      frame_id: map
+      x: 2.998
+      y: -12.433
+      yaw: 1.667
+
+  elevator_panel_4f:
+    floor: 4
+    marker_id: 41
+    type: docking_target
+
+  elevator_call_button_4f:
+    floor: 4
+    marker_id: 41
+    type: button_target
+
+  elevator_door_4f:
+    floor: 4
+    marker_id: -1
+    type: elevator_door
+
+  door_center_4f:
+    floor: 4
+    marker_id: 40
+    type: docking_target
+
+  inside_elevator_4f:
+    floor: 4
+    marker_id: 40
+    type: elevator_inside
+    extra:
+      tag_pose_topic: /tag_pose
+      cmd_vel_topic: /cmd_vel
+      localization_mode: aruco_odom
+
+  # 엘리베이터 내부 조작 패널 정렬용 target이다.
+  # 실제 내부 ArUco marker ID를 받으면 marker_id를 교체한다.
+  elevator_inside_panel:
+    floor: "$target_floor"
+    marker_id: -1
+    type: docking_target
+    extra:
+      tag_pose_topic: /tag_pose
+      cmd_vel_topic: /cmd_vel
+      localization_mode: aruco_odom
+
+  # 엘리베이터 내부 5층 버튼. 실제 marker/button ID를 받으면 교체한다.
+  elevator_button_5f:
+    floor: 4
+    marker_id: -1
+    type: button_target
+    extra:
+      button_floor: 5
+
+  floor_4_marker:
+    floor: 4
+    marker_id: 34
+    type: floor_marker
+    extra:
+      expected_floor: 4
+      floor_topic: /tag/floor_id
+
+  map_4f:
+    floor: 4
+    marker_id: -1
+    type: map_switch
+    extra:
+      map_name: 4F
+      map_yaml: 4F.yaml
+      initial_pose_location: elevator_front_4f
+
+  dock_5f:
+    floor: 5
+    marker_id: -1
+    type: dock
+    pose:
+      frame_id: map
+      x: -0.226
+      y: -0.154
+      yaw: 0.0
+
+  elevator_front_5f:
+    floor: 5
+    marker_id: -1
+    type: navigation_goal
+    pose:
+      frame_id: map
+      x: 15.771
+      y: 2.634
+      yaw: 0.0
+
+  room_501:
+    floor: 5
+    marker_id: -1
+    type: delivery_zone
+    pose:
+      frame_id: map
+      x: 6.318
+      y: 1.524
+      yaw: 0.0
+
+  object_place:
+    floor: 5
+    marker_id: -1
+    type: delivery_zone
+    pose:
+      frame_id: map
+      x: 6.318
+      y: 1.524
+      yaw: 0.0
+
+  object_place_5f:
+    floor: 5
+    marker_id: -1
+    type: delivery_zone
+    pose:
+      frame_id: map
+      x: 6.318
+      y: 1.524
+      yaw: 0.0
+
+  # 5층 엘리베이터 버튼/도어 마커 ID는 아직 실제 값을 받아야 한다.
+  # 5층에서 4층으로 다시 내려오는 미션을 실제 로봇으로 돌리려면
+  # 아래 marker_id 값을 주행/마커 기준으로 교체해야 한다.
+  elevator_panel_5f:
+    floor: 5
+    marker_id: -1
+    type: docking_target
+
+  elevator_call_button_5f:
+    floor: 5
+    marker_id: -1
+    type: button_target
+
+  elevator_door_5f:
+    floor: 5
+    marker_id: -1
+    type: elevator_door
+
+  door_center_5f:
+    floor: 5
+    marker_id: -1
+    type: docking_target
+
+  inside_elevator_5f:
+    floor: 5
+    marker_id: -1
+    type: elevator_inside
+    extra:
+      tag_pose_topic: /tag_pose
+      cmd_vel_topic: /cmd_vel
+      localization_mode: aruco_odom
+
+  # 엘리베이터 내부 4층 버튼. 실제 marker/button ID를 받으면 교체한다.
+  elevator_button_4f:
+    floor: 5
+    marker_id: -1
+    type: button_target
+    extra:
+      button_floor: 4
+
+  floor_5_marker:
+    floor: 5
+    marker_id: 35
+    type: floor_marker
+    extra:
+      expected_floor: 5
+      floor_topic: /tag/floor_id
+
+  map_5f:
+    floor: 5
+    marker_id: -1
+    type: map_switch
+    extra:
+      map_name: 5F
+      map_yaml: 5F.yaml
+      initial_pose_location: elevator_front_5f
+
+  target_floor_exit:
+    floor: "$target_floor"
+    type: navigation_goal
+    marker_id_by_floor:
+      4: 44
+      5: 54
+
+  target_floor_marker:
+    floor: "$target_floor"
+    type: floor_marker
+    marker_id_by_floor:
+      4: 34
+      5: 35
+
+  pickup_floor_exit:
+    floor: "$pickup_floor"
+    type: navigation_goal
+    marker_id_by_floor:
+      4: 44
+      5: 54
+
+  pickup_floor_marker:
+    floor: "$pickup_floor"
+    type: floor_marker
+    marker_id_by_floor:
+      4: 34
+      5: 35
+
+  # 예전 데모 명령과 문서 호환용 alias.
+  pickup_zone:
+    floor: 4
+    marker_id: -1
+    type: pickup_zone
+    pose:
+      frame_id: map
+      x: 2.998
+      y: -12.433
+      yaw: 1.667
+
+  delivery_zone:
+    floor: "$target_floor"
+    marker_id: -1
+    type: delivery_zone

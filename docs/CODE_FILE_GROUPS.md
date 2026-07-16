@@ -193,7 +193,7 @@ src/vicpinky_nav_adapter/test/
 ### 팔/그리퍼만 실제 STM32로 테스트
 
 ```bash
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch arm_can_bridge arm_can_bridge.launch.py execution_mode:=hardware
 ros2 launch roscue_arm_description bridge_display.launch.py
 ```
 
@@ -203,7 +203,7 @@ ros2 launch roscue_arm_description bridge_display.launch.py
 
 ```bash
 ros2 launch board1_simulator board1_simulator.launch.py
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch arm_can_bridge arm_can_bridge.launch.py execution_mode:=hardware
 ros2 launch roscue_arm_description bridge_display.launch.py
 ```
 
@@ -212,7 +212,8 @@ ros2 launch roscue_arm_description bridge_display.launch.py
 ```bash
 ros2 launch mission_manager mission_manager.launch.py
 ros2 launch vicpinky_nav_adapter nav_adapter.launch.py
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch central_bringup arm_hardware_bringup.launch.py \
+  execution_mode:=hardware use_rviz:=false
 ros2 launch vicpinky_gui vicpinky_gui.launch.py
 ```
 

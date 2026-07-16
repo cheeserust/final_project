@@ -1,0 +1,30 @@
+objects:
+  object_1:
+    marker_id: 54
+    name: "doll"
+    approach_type: "top_down"
+    gripper_close_rad:
+      [0.0, -1.74532925, -1.22173048,
+       0.0, -1.74532925, -1.22173048,
+       0.0, -1.74532925, -1.22173048]
+    # Required order: all middle joints first, then all tip joints.
+    close_stages_rad:
+      - [0.0, -1.74532925, 0.0,
+         0.0, -1.74532925, 0.0,
+         0.0, -1.74532925, 0.0]
+      - [0.0, -1.74532925, -1.22173048,
+         0.0, -1.74532925, -1.22173048,
+         0.0, -1.74532925, -1.22173048]
+    stage_duration_sec: 1.2
+    gripper_effort: 700
+
+gripper_open_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+buttons:
+  press_pose_rad:
+    [0.0, 0.0, -1.57079633,
+     0.0, 0.0, -1.57079633,
+     0.0, -1.57079633, 0.0]
+  gripper_effort: 900
+  duration_sec: 2.0
+

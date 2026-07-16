@@ -2,7 +2,7 @@
 <package format="3">
   <name>arm_task_server</name>
   <version>0.0.0</version>
-  <description>Semantic arm task action servers for VicPinky missions</description>
+  <description>Deprecated semantic arm task servers kept for compatibility tests.</description>
   <maintainer email="seongjun000313@gmail.com">sj</maintainer>
   <license>TODO</license>
 
@@ -25,5 +25,9 @@
 
   <export>
     <build_type>ament_python</build_type>
+    <deprecated>
+      Use roscue_arm_pick task_executor_node. Do not run both packages because
+      they provide the same /arm/* action names.
+    </deprecated>
   </export>
 </package>

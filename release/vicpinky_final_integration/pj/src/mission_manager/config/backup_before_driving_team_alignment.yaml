@@ -1,0 +1,192 @@
+# Backup made before aligning mission_manager config to vicpinky_task_servers.
+# Restore source files from these sections if the driving-team flow needs to
+# be rolled back.
+
+action_servers_yaml:
+  actions:
+    go_to:
+      server: /nav/go_to
+      task_id: go_to
+      timeout_sec: 60.0
+      retry: 1
+
+    dock_to_marker:
+      server: /dock/align
+      task_id: dock_to_marker
+      timeout_sec: 20.0
+      retry: 2
+
+    marker_cmd_vel:
+      server: /dock/align
+      task_id: marker_cmd_vel
+      timeout_sec: 20.0
+      retry: 2
+
+    pick:
+      server: /arm/pick
+      task_id: pick
+      timeout_sec: 40.0
+      retry: 1
+
+    place:
+      server: /arm/place
+      task_id: place
+      timeout_sec: 40.0
+      retry: 1
+
+    press_button:
+      server: /arm/press_button
+      task_id: press_button
+      timeout_sec: 30.0
+      retry: 1
+
+    homing:
+      server: /arm/homing
+      task_id: homing
+      timeout_sec: 40.0
+      retry: 1
+
+    wait_door_open:
+      server: /elevator/wait_door_open
+      task_id: wait_door_open
+      timeout_sec: 60.0
+      retry: 0
+
+    check_floor:
+      server: /floor/check
+      task_id: check_floor
+      timeout_sec: 15.0
+      retry: 2
+
+    map_switch:
+      server: /map/switch
+      task_id: map_switch
+      timeout_sec: 30.0
+      retry: 1
+
+mission_flow_yaml:
+  mission:
+    name: final_4f_5f_elevator_mission
+    steps:
+      - state: GO_TO_ELEVATOR_FRONT
+        task: go_to
+        target: elevator_front_4f
+        location: elevator_front_4f
+
+      - state: ALIGN_ELEVATOR_TAG
+        task: dock_to_marker
+        target: elevator_panel_4f
+        location: elevator_panel_4f
+        extra:
+          tag_pose_topic: /tag_pose
+          cmd_vel_topic: /cmd_vel
+
+      - state: PRESS_ELEVATOR_CALL_BUTTON
+        task: press_button
+        target: elevator_call_button_4f
+        location: elevator_call_button_4f
+        extra:
+          button_role: elevator_call
+
+      - state: WAIT_ELEVATOR_OPEN
+        task: wait_door_open
+        target: elevator_door_4f
+        location: elevator_door_4f
+        extra:
+          scan_topic: /scan_filtered
+
+      - state: ENTER_ELEVATOR
+        task: marker_cmd_vel
+        target: inside_elevator_4f
+        location: inside_elevator_4f
+        extra:
+          mode: enter_elevator
+          localization_mode: aruco_odom
+
+      - state: ALIGN_INSIDE_ELEVATOR_TAG
+        task: dock_to_marker
+        target: elevator_inside_panel
+        location: elevator_inside_panel
+        extra:
+          mode: inside_elevator_panel_align
+          localization_mode: aruco_odom
+
+      - state: PRESS_5F_BUTTON
+        task: press_button
+        target: elevator_button_5f
+        location: elevator_button_5f
+        extra:
+          button_role: floor_select
+          button_floor: 5
+
+      - state: WAIT_5F
+        task: check_floor
+        target: floor_5_marker
+        location: floor_5_marker
+        extra:
+          expected_floor: 5
+          floor_topic: /tag/floor_id
+
+      - state: SWITCH_5F_MAP
+        task: map_switch
+        target: map_5f
+        location: map_5f
+
+      - state: EXIT_ELEVATOR
+        task: marker_cmd_vel
+        target: elevator_front_5f
+        location: elevator_front_5f
+        extra:
+          mode: exit_elevator
+          cmd_vel_topic: /cmd_vel
+          localization_mode: aruco_odom
+
+      - state: GO_TO_TARGET_PLACE
+        task: go_to
+        target: "$delivery_location"
+        location: "$delivery_location"
+
+      - state: ARM_TASK_AT_TARGET
+        task: place
+        target: "$delivery_location"
+        location: "$delivery_location"
+        extra:
+          object_label: "$object_label"
+
+      - state: RETURN_TO_ELEVATOR
+        task: go_to
+        target: elevator_front_5f
+        location: elevator_front_5f
+
+      - state: PRESS_4F_BUTTON
+        task: press_button
+        target: elevator_button_4f
+        location: elevator_button_4f
+        extra:
+          button_role: floor_select
+          button_floor: 4
+
+      - state: WAIT_4F
+        task: check_floor
+        target: floor_4_marker
+        location: floor_4_marker
+        extra:
+          expected_floor: 4
+          floor_topic: /tag/floor_id
+
+      - state: SWITCH_4F_MAP
+        task: map_switch
+        target: map_4f
+        location: map_4f
+
+      - state: RETURN_HOME
+        task: go_to
+        target: home
+        location: home
+
+locations_yaml:
+  notes:
+    - Coordinate points were already copied from the driving-team map.
+    - Full original file is preserved in git diff/history plus this backup.
+    - The post-alignment file keeps the same points block and changes only
+      marker/action-facing metadata.

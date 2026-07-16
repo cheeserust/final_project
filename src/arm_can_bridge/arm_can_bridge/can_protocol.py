@@ -13,6 +13,7 @@ CAN_ID_ENABLE = 0x010
 CAN_ID_HOMING = 0x020
 CAN_ID_BOARD3_GRIPPER_HOME = 0x023
 CAN_ID_CLEAR_ERROR = 0x030
+CAN_ID_ARM_GOAL_CONTROL_V3 = 0x040
 
 CAN_ID_BOARD1_POSITION_COMMAND = 0x101
 CAN_ID_BOARD2_POSITION_COMMAND = 0x102
@@ -25,6 +26,9 @@ CAN_ID_BOARD3_STATUS = 0x203
 CAN_ID_BOARD1_POSITION_FEEDBACK = 0x301
 CAN_ID_BOARD2_POSITION_FEEDBACK = 0x302
 CAN_ID_BOARD3_POSITION_FEEDBACK = 0x303
+
+CAN_ID_BOARD1_ACK_V3 = 0x401
+CAN_ID_BOARD2_ACK_V3 = 0x402
 
 # Backward-compatible aliases for Board1-only callers and tests.
 CAN_ID_POSITION_COMMAND = CAN_ID_BOARD1_POSITION_COMMAND
@@ -92,7 +96,15 @@ BOARD_ID_BY_POSITION_FEEDBACK_CAN_ID = {
 POSITION_FEEDBACK_CAN_IDS = tuple(
     POSITION_FEEDBACK_CAN_ID_BY_BOARD_ID.values()
 )
-RECEIVE_CAN_IDS = STATUS_CAN_IDS + POSITION_FEEDBACK_CAN_IDS
+ACK_CAN_ID_BY_BOARD_ID = {
+    BOARD_ID_BOARD1: CAN_ID_BOARD1_ACK_V3,
+    BOARD_ID_BOARD2: CAN_ID_BOARD2_ACK_V3,
+}
+BOARD_ID_BY_ACK_CAN_ID = {
+    can_id: board_id for board_id, can_id in ACK_CAN_ID_BY_BOARD_ID.items()
+}
+ACK_CAN_IDS = tuple(BOARD_ID_BY_ACK_CAN_ID)
+RECEIVE_CAN_IDS = STATUS_CAN_IDS + POSITION_FEEDBACK_CAN_IDS + ACK_CAN_IDS
 
 
 class BoardState(IntEnum):
@@ -106,6 +118,7 @@ class BoardState(IntEnum):
     ERROR = 4
     ESTOP = 5
     DISABLED = 6
+    CONTACT_HOLD = 7
 
 
 class BoardError(IntEnum):
@@ -118,6 +131,19 @@ class BoardError(IntEnum):
     HOMING_FAIL = 4
     QUEUE_FULL = 5
     RESERVED = 6
+
+
+class ArmGoalAckResult(IntEnum):
+    """Board1/2 V3 ACK result values."""
+
+    READY = 0
+    STARTED = 1
+    DUPLICATE = 2
+    BUSY = 3
+    STAGING_TIMEOUT = 4
+    CONFLICT = 5
+    CANCELLED = 6
+    INVALID = 7
 
 
 class Board3FeedbackMotorStatus(IntEnum):
@@ -201,6 +227,55 @@ class BoardStatus:
     board_id: int = BOARD_ID_BOARD1
 
     @property
+    def _axis_nibbles(self) -> tuple[int, ...]:
+        """Return complete axis-flag nibbles from this atomic status frame."""
+        if self.board_id == BOARD_ID_BOARD2:
+            return (self.homing_done_bits & 0x0F,)
+        return (
+            self.homing_done_bits & 0x0F,
+            (self.homing_done_bits >> 4) & 0x0F,
+            self.moving_motor_id & 0x0F,
+            (self.moving_motor_id >> 4) & 0x0F,
+        )
+
+    @property
+    def position_valid_mask(self) -> int:
+        """Return the V3 bit mask of axes with valid/homed position."""
+        return self._flag_mask(0x01)
+
+    @property
+    def ready_mask(self) -> int:
+        """Return the V3 bit mask of ready axes."""
+        return self._flag_mask(0x02)
+
+    @property
+    def moving_mask(self) -> int:
+        """Return the V3 bit mask of moving axes."""
+        return self._flag_mask(0x04)
+
+    @property
+    def target_reached_mask(self) -> int:
+        """Return the V3 bit mask of axes at target."""
+        return self._flag_mask(0x08)
+
+    @property
+    def goal_slot_free(self) -> int:
+        """Return Board1 V3 slot state or Board2 legacy queue credit."""
+        return self.queue_free
+
+    @property
+    def status_sequence(self) -> int:
+        """Return the sequence belonging to this same status snapshot."""
+        return self.reserved
+
+    def _flag_mask(self, flag: int) -> int:
+        mask = 0
+        for motor_id, nibble in enumerate(self._axis_nibbles):
+            if nibble & flag:
+                mask |= 1 << motor_id
+        return mask
+
+    @property
     def board3_staging_count(self) -> int:
         """Return Board3 staging count carried in status byte 3."""
         return self.moving_motor_id
@@ -219,13 +294,9 @@ class BoardStatus:
     def all_required_axes_homed(self) -> bool:
         """Return whether this board's homing or ready requirement is met."""
         if self.board_id == BOARD_ID_BOARD1:
-            return (
-                self.homing_done_bits & REQUIRED_HOMING_MASK
-            ) == REQUIRED_HOMING_MASK
+            return self.position_valid_mask == REQUIRED_HOMING_MASK
         if self.board_id == BOARD_ID_BOARD2:
-            return (
-                self.homing_done_bits & BOARD2_REQUIRED_HOMING_MASK
-            ) == BOARD2_REQUIRED_HOMING_MASK
+            return self.position_valid_mask == BOARD2_REQUIRED_HOMING_MASK
         if self.board_id == BOARD_ID_BOARD3:
             return self.homing_done_bits == BOARD3_READY_VALUE
         return False
@@ -253,11 +324,17 @@ class BoardStatus:
     @property
     def prepared_for_trajectory(self) -> bool:
         """Return whether trajectory commands may be streamed safely."""
+        allowed_states = (
+            (BoardState.IDLE, BoardState.MOVING, BoardState.CONTACT_HOLD)
+            if self.board_id == BOARD_ID_BOARD3
+            else (BoardState.IDLE, BoardState.MOVING)
+        )
+
         return (
             self.healthy
             and self.enabled
             and self.all_required_axes_homed
-            and self.state in (BoardState.IDLE, BoardState.MOVING)
+            and self.state in allowed_states
         )
 
     @property
@@ -266,15 +343,36 @@ class BoardStatus:
         if self.board_id == BOARD_ID_BOARD3:
             return (
                 self.healthy
-                and self.state == BoardState.IDLE
+                and self.state in (BoardState.IDLE, BoardState.CONTACT_HOLD)
                 and self.board3_staging_count == 0
             )
 
         return (
             self.healthy
             and self.state == BoardState.IDLE
-            and self.moving_motor_id == ALL_MOTORS
+            and self.moving_mask == 0
+            and self.target_reached_mask == (
+                REQUIRED_HOMING_MASK
+                if self.board_id == BOARD_ID_BOARD1
+                else BOARD2_REQUIRED_HOMING_MASK
+            )
+            and self.goal_slot_free == (
+                1 if self.board_id == BOARD_ID_BOARD1 else QUEUE_CAPACITY
+            )
         )
+
+
+@dataclass(frozen=True)
+class ArmGoalAck:
+    """Decoded Board1/Board2 V3 ACK/NACK frame."""
+
+    board_id: int
+    protocol_version: int
+    result: ArmGoalAckResult
+    goal_id: int
+    received_axis_mask: int
+    state_snapshot: int
+    duration_ms: int
 
 
 @dataclass(frozen=True)
@@ -519,6 +617,59 @@ def pack_position_command(
     return CanFrame(move_can_id_for_board(normalized_board_id), data)
 
 
+def pack_arm_goal_v3(
+    *,
+    board_id: int,
+    motor_id: int,
+    target_pos: int,
+    goal_id: int,
+    duration_ms: int,
+) -> CanFrame:
+    """Pack one Board1/2 V3 absolute angle goal frame."""
+    normalized = validate_board_id(board_id)
+    if normalized not in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
+        raise ValueError('V3 arm goals support only Board1 and Board2')
+    if not 0 <= int(motor_id) < motor_count_for_board(normalized):
+        raise ValueError(
+            f'motor_id {motor_id} is invalid for board {normalized}'
+        )
+    if not -(2**31) <= int(target_pos) <= (2**31 - 1):
+        raise OverflowError('target_pos must fit signed int32')
+    if not 0 <= int(goal_id) <= 0xFF:
+        raise ValueError('goal_id must fit uint8')
+    if not 1 <= int(duration_ms) <= 0xFFFF:
+        raise ValueError('duration_ms must be in range 1..65535')
+    control = build_control_byte(
+        int(motor_id),
+        execute=True,
+        relative=False,
+        step_mode=False,
+        reserved=True,
+    )
+    return CanFrame(
+        move_can_id_for_board(normalized),
+        struct.pack(
+            '<BiBH',
+            control,
+            int(target_pos),
+            int(goal_id),
+            int(duration_ms),
+        ),
+    )
+
+
+def pack_arm_goal_control_v3(command: int, goal_id: int) -> CanFrame:
+    """Pack one V3 START(1) or CANCEL(2) broadcast."""
+    if int(command) not in (1, 2):
+        raise ValueError('V3 control command must be START(1) or CANCEL(2)')
+    if not 0 <= int(goal_id) <= 0xFF:
+        raise ValueError('goal_id must fit uint8')
+    return CanFrame(
+        CAN_ID_ARM_GOAL_CONTROL_V3,
+        bytes((int(command), int(goal_id), 0, 0, 0, 0, 0, 0)),
+    )
+
+
 def pack_board3_servo_command(
     motor_id: int,
     target_pos: int,
@@ -638,6 +789,7 @@ def unpack_status(
     data: bytes,
     *,
     board_id: int = BOARD_ID_BOARD1,
+    board2_legacy: bool = False,
 ) -> BoardStatus:
     """Decode the eight-byte board status payload."""
     normalized_board_id = validate_board_id(board_id)
@@ -647,7 +799,7 @@ def unpack_status(
 
     values = struct.unpack('<BBBBBBBB', data)
 
-    return BoardStatus(
+    status = BoardStatus(
         board_id=normalized_board_id,
         state=values[0],
         error_code=values[1],
@@ -657,6 +809,96 @@ def unpack_status(
         queue_free=values[5],
         enabled=bool(values[6]),
         reserved=values[7],
+    )
+    if (
+        normalized_board_id in (BOARD_ID_BOARD1, BOARD_ID_BOARD2)
+        and status.error_code > int(BoardError.RESERVED)
+    ):
+        raise ValueError(
+            f'Board{normalized_board_id} error code '
+            f'{status.error_code} exceeds 6 (invalid status payload)'
+        )
+    if (
+        normalized_board_id == BOARD_ID_BOARD1
+        and status.limit_status_bits & 0xF0
+    ):
+        raise ValueError(
+            'Board1 limit status bits '
+            f'0x{status.limit_status_bits:02X} exceed 0x0F '
+            '(invalid status payload)'
+        )
+    uses_v3_slot = (
+        normalized_board_id == BOARD_ID_BOARD1
+        or (
+            normalized_board_id == BOARD_ID_BOARD2
+            and not board2_legacy
+        )
+    )
+    if uses_v3_slot:
+        if status.goal_slot_free not in (0, 1):
+            raise ValueError(
+                f'Board{normalized_board_id} V3 goal_slot_free must be 0 or 1; '
+                f'got {status.goal_slot_free} (protocol mismatch)'
+            )
+        max_mask = 0x0F if normalized_board_id == BOARD_ID_BOARD1 else 0x01
+        for name, mask in (
+            ('ready', status.ready_mask),
+            ('moving', status.moving_mask),
+            ('target_reached', status.target_reached_mask),
+        ):
+            if mask & ~max_mask:
+                raise ValueError(
+                    f'Board{normalized_board_id} {name} mask '
+                    f'0x{mask:02X} exceeds 0x{max_mask:02X}'
+                )
+        if (
+            status.state == BoardState.ERROR
+            and status.ready_mask == max_mask
+        ):
+            raise ValueError(
+                f'Board{normalized_board_id} status is contradictory: '
+                'ERROR with every axis ready'
+            )
+    elif (
+        normalized_board_id == BOARD_ID_BOARD2
+        and status.queue_free > QUEUE_CAPACITY
+    ):
+        raise ValueError(
+            'Board2 legacy queue_free must be in 0..32; '
+            f'got {status.queue_free}'
+        )
+    return status
+
+
+def unpack_arm_goal_ack_v3(data: bytes, *, board_id: int) -> ArmGoalAck:
+    """Decode and validate one Board1/Board2 V3 ACK/NACK payload."""
+    normalized = validate_board_id(board_id)
+    if normalized not in (BOARD_ID_BOARD1, BOARD_ID_BOARD2):
+        raise ValueError('V3 ACK supports only Board1 and Board2')
+    if len(data) != 8:
+        raise ValueError('V3 ACK payload must contain 8 bytes')
+    if data[0] != 3:
+        raise ValueError(f'Expected V3 ACK version 3, got {data[0]}')
+    if data[5] != 0:
+        raise ValueError('V3 ACK reserved byte 5 must be zero')
+    try:
+        result = ArmGoalAckResult(int(data[1]))
+    except ValueError as exc:
+        raise ValueError(f'Unknown V3 ACK result {data[1]}') from exc
+    max_mask = 0x0F if normalized == BOARD_ID_BOARD1 else 0x01
+    if data[3] & ~max_mask:
+        raise ValueError(
+            f'Board{normalized} ACK mask 0x{data[3]:02X} exceeds '
+            f'0x{max_mask:02X}'
+        )
+    return ArmGoalAck(
+        board_id=normalized,
+        protocol_version=3,
+        result=result,
+        goal_id=int(data[2]),
+        received_axis_mask=int(data[3]),
+        state_snapshot=int(data[4]),
+        duration_ms=struct.unpack_from('<H', data, 6)[0],
     )
 
 

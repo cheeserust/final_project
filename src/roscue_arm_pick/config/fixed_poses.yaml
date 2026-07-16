@@ -1,0 +1,98 @@
+calibration:
+  # Values below come from the final central-server PDF (2026-07-11).
+  complete: true
+  # Numerical integration is complete, but no physical robot was available
+  # in this workspace for the final button/pick verification.
+  field_verified: false
+  source: "final central-server PDF"
+  notes:
+    - "observe_cabin_5_button was not supplied; cabin-4 observation pose is used."
+    - "The supplied cabin J3=91.5 deg exceeded the +90 deg limit and is clamped."
+
+joint_order:
+  arm:
+    - base_joint
+    - arm_joint_1
+    - arm_joint_2
+    - arm_joint_3
+    - arm_joint_4
+  gripper:
+    - finger_1_base_joint
+    - finger_1_middle_joint
+    - finger_1_tip_joint
+    - finger_2_base_joint
+    - finger_2_middle_joint
+    - finger_2_tip_joint
+    - finger_3_base_joint
+    - finger_3_middle_joint
+    - finger_3_tip_joint
+
+arm_named_poses:
+  # PDF home/travel-stow (not the raw homing switch reference).
+  home:
+    positions_rad: [-1.57079633, -1.48352986, -1.08559479, -1.59697627, -1.57079633]
+    duration_sec: 4.0
+  travel_stow:
+    positions_rad: [-1.57079633, -1.48352986, -1.08559479, -1.59697627, -1.57079633]
+    duration_sec: 4.0
+
+  ready:
+    positions_rad: [0.0, -0.26179939, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+  observe_pickup_402:
+    positions_rad: [0.0, -0.26179939, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+
+  tray_drop:
+    positions_rad: [-1.04719755, -0.52359878, 1.22173048, 1.22173048, -0.01745329]
+    duration_sec: 4.0
+  tray_pick:
+    positions_rad: [-1.04719755, -0.69813170, 1.39626340, 1.04719755, -0.02094395]
+    duration_sec: 4.0
+  delivery_5f:
+    positions_rad: [-0.08726646, 0.69813170, -0.69813170, -0.69813170, -1.57079633]
+    duration_sec: 4.0
+
+  observe_call_4f:
+    positions_rad: [-0.06981317, -0.97738438, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+  observe_call_5f:
+    positions_rad: [-0.06981317, -0.97738438, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+  observe_cabin_4_button:
+    positions_rad: [-0.69813170, -0.96865773, -0.92502450, 1.57079633, -0.01745329]
+    duration_sec: 3.0
+  observe_cabin_5_button:
+    # PDF did not provide this pose. Reuse the panel-wide cabin observation.
+    positions_rad: [-0.69813170, -0.96865773, -0.92502450, 1.57079633, -0.01745329]
+    duration_sec: 3.0
+
+  # Raw switch reference used only for cross-package validation after homing.
+  hardware_home_reference:
+    positions_rad: [-1.57079633, -1.50970980, -1.36310215, -1.59697627, -1.57079633]
+    duration_sec: 3.0
+
+  # Compatibility names retained for manual tools.
+  observe_robot_front_drop:
+    positions_rad: [-1.04719755, -0.52359878, 1.22173048, 1.22173048, -0.01745329]
+    duration_sec: 4.0
+  observe_elevator_buttons:
+    positions_rad: [-0.06981317, -0.97738438, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+  observe_object_start:
+    positions_rad: [0.0, -0.26179939, -0.92502450, -1.59697627, -0.01745329]
+    duration_sec: 3.0
+
+gripper_named_poses:
+  open:
+    positions_rad: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    effort: 300
+    duration_sec: 1.5
+  ready:
+    positions_rad: [0.0, -0.52359878, 0.0, 0.0, -0.52359878, 0.0, 0.0, -0.52359878, 0.0]
+    effort: 300
+    duration_sec: 1.5
+  press:
+    positions_rad: [0.0, 0.0, -1.57079633, 0.0, 0.0, -1.57079633, 0.0, -1.57079633, 0.0]
+    effort: 900
+    duration_sec: 2.0

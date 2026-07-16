@@ -32,7 +32,7 @@ setup(
     zip_safe=True,
     maintainer='sj',
     maintainer_email='seongjun000313@gmail.com',
-    description='Semantic arm task action servers for VicPinky missions',
+    description='Deprecated arm task servers kept for compatibility tests',
     license='TODO',
     tests_require=['pytest'],
     entry_points={

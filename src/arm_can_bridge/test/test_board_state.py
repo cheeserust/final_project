@@ -1,305 +1,149 @@
-"""Unit tests for board runtime status tracking."""
+"""Tests for Board1 V3, Board2 legacy, and Board3 queue state."""
 
-from arm_can_bridge.board_state import BoardStateTracker
-from arm_can_bridge.board_state import MultiBoardStateTracker
+from arm_can_bridge.board_state import BoardStateTracker, MultiBoardStateTracker
 from arm_can_bridge.can_protocol import (
-    ALL_MOTORS,
-    BOARD3_SERVO_COUNT,
     BOARD_ID_BOARD1,
     BOARD_ID_BOARD2,
     BOARD_ID_BOARD3,
-    BoardError,
     BoardState,
     BoardStatus,
 )
 import pytest
 
 
-def make_status(
-    *,
-    state=BoardState.IDLE,
-    error_code=BoardError.NONE,
-    homing_done_bits=0x0F,
-    moving_motor_id=ALL_MOTORS,
-    limit_status_bits=0,
-    queue_free=32,
-    enabled=True,
-    board_id=BOARD_ID_BOARD1,
-    reserved=0,
-) -> BoardStatus:
-    """Create one BoardStatus with safe defaults."""
+def arm_status(board_id, *, state=BoardState.IDLE, axis2=0xBB,
+               axis3=0xBB, slot=1, error=0, limit_bits=0):
+    """Make Board1/2 status with valid+ready+reached axis nibbles."""
     return BoardStatus(
-        state=int(state),
-        error_code=int(error_code),
-        homing_done_bits=homing_done_bits,
-        moving_motor_id=moving_motor_id,
-        limit_status_bits=limit_status_bits,
-        queue_free=queue_free,
-        enabled=enabled,
-        reserved=reserved,
-        board_id=board_id,
+        board_id=board_id, state=state, error_code=error,
+        homing_done_bits=axis2, moving_motor_id=axis3,
+        limit_status_bits=limit_bits, queue_free=slot,
+        enabled=True, reserved=9,
     )
 
 
-def make_ready_tracker(received_at=10.0) -> BoardStateTracker:
-    """Create a tracker with fresh, homed, enabled status."""
-    tracker = BoardStateTracker(status_timeout_ms=500)
+def test_board1_accepts_only_fresh_idle_free_goal_slot():
+    tracker = BoardStateTracker(
+        board_id=BOARD_ID_BOARD1, queue_capacity=1, status_timeout_ms=500,
+    )
+    tracker.update_status(arm_status(BOARD_ID_BOARD1), received_at=10.0)
+    tracker.mark_commanded_position_valid()
+    assert tracker.all_axes_homed()
+    assert tracker.can_accept_new_trajectory(now=10.1)
+    assert not tracker.can_accept_new_trajectory(now=10.6)
+
+
+@pytest.mark.parametrize(
+    ('board_id', 'axis2', 'axis3', 'slot', 'limit_bits'),
+    [
+        (BOARD_ID_BOARD1, 0xBB, 0xBB, 1, 0x04),
+        (BOARD_ID_BOARD2, 0x0B, 0x00, 32, 0x01),
+    ],
+)
+def test_arm_limit_bit_alone_does_not_reject_away_motion(
+    board_id, axis2, axis3, slot, limit_bits,
+):
+    """STM, not the server, decides whether motion approaches the limit."""
+    tracker = BoardStateTracker(
+        board_id=board_id,
+        queue_capacity=slot,
+        required_homing_mask=(0x01 if board_id == BOARD_ID_BOARD2 else 0x0F),
+        status_timeout_ms=500,
+    )
     tracker.update_status(
-        make_status(),
-        received_at=received_at,
+        arm_status(
+            board_id,
+            axis2=axis2,
+            axis3=axis3,
+            slot=slot,
+            limit_bits=limit_bits,
+        ),
+        received_at=15.0,
     )
     tracker.mark_commanded_position_valid()
-    return tracker
+
+    assert not tracker.has_error()
+    assert tracker.can_accept_new_trajectory(now=15.1)
 
 
-def test_initial_state_has_no_usable_status():
-    tracker = BoardStateTracker(status_timeout_ms=500)
-
-    assert tracker.has_status() is False
-    assert tracker.is_status_stale(now=0.0) is True
-    assert tracker.can_accept_new_trajectory(now=0.0) is False
-    assert tracker.available_queue_slots() == 0
-
-
-def test_fresh_ready_status_accepts_new_trajectory():
-    tracker = make_ready_tracker()
-
-    assert tracker.is_status_stale(now=10.4) is False
-    assert tracker.is_enabled() is True
-    assert tracker.all_axes_homed() is True
-    assert tracker.has_error() is False
-    assert tracker.can_accept_new_trajectory(now=10.4) is True
-    assert tracker.is_trajectory_complete(now=10.4) is True
-
-
-def test_status_becomes_stale_after_timeout():
-    tracker = make_ready_tracker()
-
-    assert tracker.is_status_stale(now=10.5) is False
-    assert tracker.is_status_stale(now=10.500001) is True
-    assert tracker.can_accept_new_trajectory(now=10.6) is False
-    assert tracker.is_trajectory_complete(now=10.6) is False
-
-
-def test_moving_board_can_stream_but_cannot_accept_new_goal():
-    tracker = BoardStateTracker(status_timeout_ms=500)
+def test_arm_error_state_rejects_motion_even_with_no_error_code():
+    tracker = BoardStateTracker(
+        board_id=BOARD_ID_BOARD1,
+        queue_capacity=1,
+        status_timeout_ms=500,
+    )
     tracker.update_status(
-        make_status(
-            state=BoardState.MOVING,
-            moving_motor_id=0,
-            queue_free=12,
+        arm_status(
+            BOARD_ID_BOARD1,
+            state=BoardState.ERROR,
+            limit_bits=0x04,
+        ),
+        received_at=16.0,
+    )
+    tracker.mark_commanded_position_valid()
+
+    assert tracker.has_error()
+    assert not tracker.can_accept_new_trajectory(now=16.1)
+
+
+def test_busy_slot_and_moving_state_reject_a_second_goal():
+    tracker = BoardStateTracker(board_id=BOARD_ID_BOARD1, queue_capacity=1)
+    tracker.update_status(
+        arm_status(
+            BOARD_ID_BOARD1, state=BoardState.MOVING,
+            axis2=0x77, axis3=0x77, slot=0,
         ),
         received_at=20.0,
     )
     tracker.mark_commanded_position_valid()
-
-    assert tracker.can_accept_new_trajectory(now=20.1) is False
-    assert tracker.can_stream_slots(4, now=20.1) is True
-    assert tracker.is_trajectory_complete(now=20.1) is False
+    assert not tracker.can_accept_new_trajectory(now=20.1)
 
 
-def test_error_estop_disabled_or_unhomed_blocks_motion():
-    cases = [
-        make_status(
-            state=BoardState.ERROR,
-            error_code=BoardError.QUEUE_FULL,
-        ),
-        make_status(state=BoardState.ESTOP),
-        make_status(enabled=False),
-        make_status(homing_done_bits=0x07),
-    ]
-
-    for status in cases:
-        tracker = BoardStateTracker(status_timeout_ms=500)
-        tracker.update_status(status, received_at=30.0)
-        tracker.mark_commanded_position_valid()
-
-        assert tracker.can_accept_new_trajectory(now=30.1) is False
-        assert tracker.can_stream_slots(4, now=30.1) is False
-
-
-def test_reserve_queue_slots_decrements_local_credit():
-    tracker = BoardStateTracker(status_timeout_ms=500)
+def test_arm_completion_requires_all_target_masks_and_free_slot():
+    tracker = BoardStateTracker(board_id=BOARD_ID_BOARD1, queue_capacity=1)
+    tracker.update_status(arm_status(BOARD_ID_BOARD1), received_at=30.0)
+    tracker.mark_commanded_position_valid()
+    assert tracker.is_trajectory_complete(now=30.1)
     tracker.update_status(
-        make_status(queue_free=8),
-        received_at=40.0,
+        arm_status(BOARD_ID_BOARD1, axis3=0x3B), received_at=30.2,
+    )
+    assert not tracker.is_trajectory_complete(now=30.3)
+
+
+def test_goal_slot_values_above_one_fail_closed():
+    tracker = BoardStateTracker(board_id=BOARD_ID_BOARD1, queue_capacity=1)
+    with pytest.raises(ValueError):
+        tracker.update_status(
+            arm_status(BOARD_ID_BOARD1, slot=124), received_at=40.0,
+        )
+
+
+def test_multi_board_requires_board1_and_board2_ready():
+    tracker = MultiBoardStateTracker(
+        board_ids=[BOARD_ID_BOARD1, BOARD_ID_BOARD2], status_timeout_ms=500,
+    )
+    tracker.update_status(arm_status(BOARD_ID_BOARD1), received_at=50.0)
+    tracker.update_status(
+        arm_status(BOARD_ID_BOARD2, axis2=0x0B, axis3=0, slot=32),
+        received_at=50.0,
     )
     tracker.mark_commanded_position_valid()
-
-    assert tracker.reserve_queue_slots(4, now=40.1) is True
-    assert tracker.available_queue_slots() == 4
-
-    assert tracker.reserve_queue_slots(4, now=40.1) is True
-    assert tracker.available_queue_slots() == 0
-
-    assert tracker.reserve_queue_slots(4, now=40.1) is False
-    assert tracker.available_queue_slots() == 0
+    assert tracker.can_accept_new_trajectory(now=50.1)
 
 
-def test_new_status_refreshes_local_queue_credit():
-    tracker = make_ready_tracker(received_at=50.0)
-
-    assert tracker.reserve_queue_slots(4, now=50.1) is True
-    assert tracker.available_queue_slots() == 28
-
-    tracker.update_status(
-        make_status(queue_free=30),
-        received_at=50.2,
+def test_board3_keeps_legacy_nine_frame_buffer_semantics():
+    tracker = BoardStateTracker(
+        board_id=BOARD_ID_BOARD3, queue_capacity=9,
+        requires_homing=False, requires_ready=True, requires_fault_clear=True,
     )
-
-    assert tracker.available_queue_slots() == 30
-
-
-def test_refund_does_not_exceed_last_reported_credit():
-    tracker = BoardStateTracker(status_timeout_ms=500)
     tracker.update_status(
-        make_status(queue_free=8),
+        BoardStatus(
+            board_id=BOARD_ID_BOARD3, state=BoardState.IDLE,
+            error_code=0, homing_done_bits=1, moving_motor_id=0,
+            limit_status_bits=0, queue_free=9, enabled=True, reserved=0xFF,
+        ),
         received_at=60.0,
     )
     tracker.mark_commanded_position_valid()
-
-    assert tracker.reserve_queue_slots(4, now=60.1) is True
-    tracker.refund_queue_slots(4)
-    assert tracker.available_queue_slots() == 8
-
-    tracker.refund_queue_slots(4)
-    assert tracker.available_queue_slots() == 8
-
-
-def test_invalid_queue_free_is_rejected():
-    tracker = BoardStateTracker(queue_capacity=32)
-
-    with pytest.raises(ValueError, match='outside the configured range'):
-        tracker.update_status(make_status(queue_free=33))
-
-
-def test_error_or_disable_invalidates_commanded_position():
-    tracker = make_ready_tracker(received_at=70.0)
-    assert tracker.commanded_position_valid() is True
-
-    tracker.update_status(
-        make_status(enabled=False),
-        received_at=70.1,
-    )
-    assert tracker.commanded_position_valid() is False
-
-
-def test_completion_requires_idle_empty_enabled_homed_status():
-    tracker = make_ready_tracker(received_at=80.0)
-    assert tracker.is_trajectory_complete(now=80.1) is True
-
-    tracker.update_status(
-        make_status(queue_free=31),
-        received_at=80.2,
-    )
-    assert tracker.is_trajectory_complete(now=80.3) is False
-
-    tracker.update_status(
-        make_status(moving_motor_id=2),
-        received_at=80.4,
-    )
-    assert tracker.is_trajectory_complete(now=80.5) is False
-
-
-def test_board3_completion_uses_staging_status_fields():
-    tracker = BoardStateTracker(
-        board_id=BOARD_ID_BOARD3,
-        queue_capacity=BOARD3_SERVO_COUNT,
-        requires_homing=False,
-        requires_ready=True,
-        requires_fault_clear=True,
-    )
-    tracker.update_status(
-        make_status(
-            board_id=BOARD_ID_BOARD3,
-            homing_done_bits=1,
-            moving_motor_id=0,
-            queue_free=BOARD3_SERVO_COUNT,
-            reserved=ALL_MOTORS,
-        ),
-        received_at=85.0,
-    )
-    tracker.mark_commanded_position_valid()
-
-    assert tracker.is_trajectory_complete(now=85.1) is True
-
-    tracker.update_status(
-        make_status(
-            board_id=BOARD_ID_BOARD3,
-            state=BoardState.MOVING,
-            homing_done_bits=1,
-            moving_motor_id=0,
-            queue_free=BOARD3_SERVO_COUNT,
-            reserved=ALL_MOTORS,
-        ),
-        received_at=85.15,
-    )
-
-    assert tracker.is_trajectory_complete(now=85.16) is False
-    assert tracker.can_stream_slots(BOARD3_SERVO_COUNT, now=85.16) is False
-
-    tracker.update_status(
-        make_status(
-            board_id=BOARD_ID_BOARD3,
-            state=BoardState.STAGING,
-            homing_done_bits=1,
-            moving_motor_id=3,
-            queue_free=BOARD3_SERVO_COUNT - 3,
-            reserved=ALL_MOTORS,
-        ),
-        received_at=85.2,
-    )
-
-    assert tracker.is_trajectory_complete(now=85.3) is False
-
-
-def test_snapshot_is_consistent():
-    tracker = make_ready_tracker(received_at=90.0)
-    assert tracker.reserve_queue_slots(4, now=90.1) is True
-
-    snapshot = tracker.snapshot(now=90.2)
-
-    assert snapshot.status is not None
-    assert snapshot.status_age_ms == pytest.approx(200.0)
-    assert snapshot.status_stale is False
-    assert snapshot.local_queue_free == 28
-    assert snapshot.commanded_position_valid is True
-
-
-def test_multi_board_tracker_requires_all_boards_ready():
-    tracker = MultiBoardStateTracker(
-        board_ids=[BOARD_ID_BOARD1, BOARD_ID_BOARD2],
-        status_timeout_ms=500,
-    )
-
-    tracker.update_status(
-        make_status(board_id=BOARD_ID_BOARD1, homing_done_bits=0x0F),
-        received_at=100.0,
-    )
-    tracker.update_status(
-        make_status(board_id=BOARD_ID_BOARD2, homing_done_bits=0x01),
-        received_at=100.0,
-    )
-    tracker.mark_commanded_position_valid()
-
-    assert tracker.can_accept_new_trajectory(now=100.1) is True
-    assert tracker.reserve_queue_slots(
-        {BOARD_ID_BOARD1: 4, BOARD_ID_BOARD2: 1},
-        now=100.1,
-    )
-    assert tracker.snapshot(now=100.1).boards[
-        BOARD_ID_BOARD1
-    ].local_queue_free == 28
-    assert tracker.snapshot(now=100.1).boards[
-        BOARD_ID_BOARD2
-    ].local_queue_free == 31
-
-    tracker.update_status(
-        make_status(
-            board_id=BOARD_ID_BOARD2,
-            homing_done_bits=0x00,
-        ),
-        received_at=100.2,
-    )
-
-    assert tracker.can_accept_new_trajectory(now=100.3) is False
+    assert tracker.can_accept_new_trajectory(now=60.1)
+    assert tracker.reserve_queue_slots(9, now=60.1)

@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "../..",
+  "compiler.optimization_flags": "",
+  "customBuildProperties": "",
+  "fqbn": "arduino:avr:uno",
+  "hardwareFolders": "/home/sj/vicpinky_server_ws/.arduino-cli/data/packages/arduino/hardware/avr/1.8.8,/home/sj/vicpinky_server_ws/.arduino-cli/data/packages/arduino/hardware/avr/1.8.8",
+  "otherLibrariesFolders": "/home/sj/vicpinky_server_ws/.arduino-cli/user/libraries",
+  "sketchLocation": "/tmp/vicpinky_refresh_inspect/arduino_board2_tb6600"
+}

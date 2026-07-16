@@ -3,55 +3,83 @@ arm_can_bridge:
     # 개발 중에는 vcan0, 실제 STM32 연결 시 can0으로 변경한다.
     can_interface: "vcan0"
 
-    # MoveIt controller 설정과 정확히 맞아야 하는 Action 이름이다.
-    arm_action_name: "/arm_controller/follow_joint_trajectory"
+    # 중앙 bringup의 기본값. 실측 보정 검사를 통과한 뒤에만 hardware로 덮어쓴다.
+    execution_mode: "plan_only"
+
+    # Arm은 Board1 V3 + Board2 legacy 최종각 5개 direct Action이다.
+    # MoveIt waypoint/FollowJointTrajectory를 이 경로에 연결하면 안 된다.
+    arm_action_name: "/arm_controller/execute_joint_goal"
     gripper_action_name: "/gripper_controller/follow_joint_trajectory"
 
     # RViz/robot_state_publisher가 읽는 joint state topic이다.
     # 0x301/0x302/0x303 actual feedback이 있으면 실제값을 우선 사용한다.
     joint_states_topic: "/joint_states"
 
+    # Board1/2 arm이 분리된 단독 테스트에서는 launch에서 false로 덮어쓴다.
+    enable_arm: true
+
     # Board3 gripper가 고장/분리된 상태에서는 launch에서 false로 덮어쓴다.
     # false이면 arm controller(Board1+Board2)만 생성하고 0x023 gripper home은 보내지 않는다.
     enable_gripper: true
 
     # Arm controller: Board1 4축 step motor + Board2 1축 step motor.
-    # 전력 분산을 위해 base_joint는 Board2, arm_joint_1~4는 Board1이 담당한다.
+    # Board1 motor0~2는 arm_joint_1~3, motor3은 base_joint를 담당한다.
+    # Board2 motor0은 arm_joint_4를 담당한다.
     arm_joint_names:
-      - "base_joint"
       - "arm_joint_1"
       - "arm_joint_2"
       - "arm_joint_3"
+      - "base_joint"
       - "arm_joint_4"
 
     # arm_joint_names와 같은 인덱스 순서로 대응한다.
-    # Board2: base_joint
-    # Board1: arm_joint_1~arm_joint_4
-    arm_board_ids: [2, 1, 1, 1, 1]
-    arm_motor_ids: [0, 0, 1, 2, 3]
+    # Board1: arm_joint_1~arm_joint_3, base_joint
+    # Board2: arm_joint_4
+    arm_board_ids: [1, 1, 1, 1, 2]
+    arm_motor_ids: [0, 1, 2, 3, 0]
 
     # 실제 구동 전 MoveIt URDF/joint_limits.yaml 값과 동일해야 한다.
     arm_min_positions_rad:
+      - -1.50970980   # arm_joint_1: include -86.5 deg homing reference
+      - -1.36310215   # arm_joint_2: -78.1 deg
+      - -1.59697627   # arm_joint_3: -91.5 deg
       - -1.57079633   # base_joint: -90 deg
-      - -1.57079633   # arm_joint_1: -90 deg
-      - -1.39626340   # arm_joint_2: -80 deg
-      - -1.57079633   # arm_joint_3: -90 deg
-      - -2.96705973   # arm_joint_4: -170 deg
+      - -1.57079633   # arm_joint_4: -90 deg
 
     arm_max_positions_rad:
-      - 3.14159265    # base_joint: 180 deg
       - 1.57079633    # arm_joint_1: 90 deg
       - 1.39626340    # arm_joint_2: 80 deg
       - 1.57079633    # arm_joint_3: 90 deg
-      - 2.96705973    # arm_joint_4: 170 deg
+      - 3.14159265    # base_joint: 180 deg
+      - 1.57079633    # arm_joint_4: 90 deg
 
     # homing 완료 후 /joint_states에 표시할 arm commanded home pose다.
     arm_home_positions_rad:
+      - -1.50970980   # arm_joint_1 home: -86.5 deg / raw -8650
+      - -1.36310215   # arm_joint_2 home: -78.1 deg
+      - -1.59697627   # arm_joint_3 home: -91.5 deg
       - -1.57079633   # base_joint home: -90 deg
-      - -1.57079633   # arm_joint_1 home: -90 deg
-      - -1.39626340   # arm_joint_2 home: -80 deg
-      - -1.57079633   # arm_joint_3 home: -90 deg
-      - -2.96705973   # arm_joint_4 home: -170 deg
+      - -1.57079633   # arm_joint_4 home: -90 deg
+
+    # ROS/GUI joint 증가 방향과 STM32 raw angle 증가 방향 보정값이다.
+    # raw = sign * ros + offset 이다. 기본값은 STM32 firmware angle과 동일하게 둔다.
+    arm_raw_position_signs: [1, 1, 1, 1, 1]
+    arm_raw_position_offsets_rad:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+
+    # Firmware가 실제 0x101/0x102 target으로 허용하는 0.01도 정수 범위다.
+    # ROS/MoveIt 표현 범위와 별도로, sign/offset 변환 후 모든 CAN 목표를 검사한다.
+    # 순서: arm_joint_1, arm_joint_2, arm_joint_3, base_joint, arm_joint_4.
+    arm_command_min_angle_raw: [-8650, -7810, -9150, -9000, -9000]
+    arm_command_max_angle_raw: [9000, 8000, 9000, 18000, 9000]
+
+    # 제어하지 않는 URDF joint가 있을 때 /joint_states에 고정값으로 추가한다.
+    fixed_joint_state_names: []
+    fixed_joint_state_positions_rad: []
 
     # Gripper controller: Board3 9축 servo.
     gripper_joint_names:
@@ -103,8 +131,19 @@ arm_can_bridge:
       - 0.0
       - 0.0
 
-    # Board1/2 Speed 필드다. 현재 STM firmware에서는 사용하지 않으므로 0으로 보낸다.
-    arm_speed_raw: 0
+    # Board3 raw 각도와 ROS joint 방향/영점의 유일한 실행 보정값이다.
+    # 실제 하드웨어에서 축별 소각도 시험 후 이 배열만 수정한다.
+    gripper_raw_position_signs: [1, 1, 1, 1, 1, 1, 1, 1, 1]
+    gripper_raw_position_offsets_rad:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
 
     # Board3 0x103 Byte 5~6은 Target Load(파지력 임계값)로 사용한다.
     # JointTrajectoryPoint.effort[]에 load가 있으면 goal별 값이 이 기본값보다 우선한다.
@@ -114,17 +153,13 @@ arm_can_bridge:
     # 실제 STM32/servo 통신 여유를 위해 0x103 frame 사이에 작은 gap을 둔다.
     board3_inter_frame_delay_ms: 3.0
 
-    # 0x201/0x202/0x203 상태가 이 시간보다 오래 들어오지 않으면 연결 이상으로 본다.
-    status_timeout_ms: 500
+    # Board1/2 Status Byte5는 queue가 아니라 0/1 goal_slot_free다.
+    # 아래 queue 대기 설정은 변경하지 않은 Board3 gripper에만 적용된다.
+    queue_capacity: 9
 
-    # 각 STM32 firmware queue 전체 slot 수다.
-    queue_capacity: 32
-
-    # Queue slot이 부족할 때 기다릴 최대 시간이다.
-    queue_wait_timeout_ms: 3000
-
-    # 마지막 frame 송신 후 예상 종료 시각을 넘겨 추가로 기다릴 시간이다.
-    completion_grace_ms: 3000
+    # Board1/2 0x301/0x302 feedback은 int16 angle_raw 4개 packed frame이다.
+    # Board1은 motor0~3을 모두 사용하고, Board2는 첫 int16 motor0만 사용한다.
+    packed_position_feedback_board_ids: [1, 2]
 
     # Board1의 axis 0~3 homing 완료 mask다. Board2는 코드에서 bit0을 사용한다.
     required_homing_mask: 15
@@ -135,5 +170,4 @@ arm_can_bridge:
     # /joint_states 발행 주기다.
     joint_state_rate_hz: 50.0
 
-    control_wait_timeout_ms: 3000
     status_publish_period_ms: 500

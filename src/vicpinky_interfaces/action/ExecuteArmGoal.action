@@ -1,0 +1,16 @@
+# Direct Board1/Board2 joint goal.  This is not a MoveIt trajectory: the
+# firmware moves directly to the final angles using its internal profile.
+string[] joint_names
+float64[] positions
+uint16 duration_ms
+string request_id
+int64 web_created_unix_ms
+int64 gui_received_unix_ms
+---
+bool success
+uint8 goal_id
+string message
+---
+uint8 goal_id
+uint8 phase
+string detail

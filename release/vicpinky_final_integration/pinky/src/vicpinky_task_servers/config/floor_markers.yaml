@@ -1,0 +1,32 @@
+markers:
+  4:
+    type: "landing"
+    floor_number: 4
+    map_yaml: "maps/4f.yaml"
+    # Pinky nav_points.yaml의 4F elevator_front 좌표.
+    initial_pose:
+      x: 0.470
+      y: -0.455
+      yaw: 1.983
+
+  5:
+    type: "landing"
+    floor_number: 5
+    map_yaml: "maps/5f.yaml"
+    # Pinky nav_points.yaml의 5F elevator_front 좌표.
+    initial_pose:
+      x: 14.93
+      y: 1.90
+      yaw: 0.0
+  
+  10:
+    type: "elevator_interior"
+    map_yaml: "maps/elevator.yaml"
+    initial_pose: 
+      x: 0 # will be updated
+      y: 0 # will be updated
+      yaw: 0 # will be updated
+  
+  
+      
+   

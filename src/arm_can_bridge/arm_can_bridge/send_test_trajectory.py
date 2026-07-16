@@ -1,4 +1,4 @@
-"""Send small FollowJointTrajectory goals to arm_can_bridge."""
+"""Send two independent direct arm goals and one Board3 trajectory."""
 
 import math
 import sys
@@ -11,9 +11,10 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectoryPoint
+from vicpinky_interfaces.action import ExecuteArmGoal
 
 
-ARM_ACTION_NAME = '/arm_controller/follow_joint_trajectory'
+ARM_ACTION_NAME = '/arm_controller/execute_joint_goal'
 GRIPPER_ACTION_NAME = '/gripper_controller/follow_joint_trajectory'
 JOINT_STATES_TOPIC = '/joint_states'
 CURRENT_POSITION_TIMEOUT_SEC = 3.0
@@ -29,10 +30,10 @@ ARM_JOINT_NAMES = [
 
 ARM_MIN_POSITIONS_RAD = [
     math.radians(-90.0),
+    math.radians(-86.5),
+    math.radians(-78.1),
+    math.radians(-91.5),
     math.radians(-90.0),
-    math.radians(-80.0),
-    math.radians(-90.0),
-    math.radians(-170.0),
 ]
 
 ARM_MAX_POSITIONS_RAD = [
@@ -40,7 +41,7 @@ ARM_MAX_POSITIONS_RAD = [
     math.radians(90.0),
     math.radians(80.0),
     math.radians(90.0),
-    math.radians(170.0),
+    math.radians(90.0),
 ]
 
 GRIPPER_JOINT_NAMES = [
@@ -87,7 +88,7 @@ class TestTrajectoryClient(Node):
         super().__init__('send_test_trajectory')
         self._arm_client = ActionClient(
             self,
-            FollowJointTrajectory,
+            ExecuteArmGoal,
             ARM_ACTION_NAME,
         )
         self._gripper_client = ActionClient(
@@ -127,18 +128,34 @@ class TestTrajectoryClient(Node):
             ARM_MAX_POSITIONS_RAD,
         )
 
-        points = [
-            self._point(current, 0.0),
-            self._point(target, 1.0),
-            self._point(current, 2.0),
-        ]
+        result = self._send_arm_direct_goal('arm target', target, 1000)
+        if result != 0:
+            return result
+        return self._send_arm_direct_goal('arm return', current, 1000)
 
-        return self._send_goal(
-            label='arm',
-            client=self._arm_client,
-            joint_names=ARM_JOINT_NAMES,
-            points=points,
+    def _send_arm_direct_goal(
+        self,
+        label: str,
+        positions: Sequence[float],
+        duration_ms: int,
+    ) -> int:
+        goal = ExecuteArmGoal.Goal()
+        goal.joint_names = list(ARM_JOINT_NAMES)
+        goal.positions = [float(value) for value in positions]
+        goal.duration_ms = int(duration_ms)
+        future = self._arm_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, future)
+        goal_handle = future.result()
+        if goal_handle is None or not goal_handle.accepted:
+            self.get_logger().error(f'{label} goal rejected')
+            return 1
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
+        result = result_future.result().result
+        self.get_logger().info(
+            f'{label} success={result.success}, message={result.message}'
         )
+        return 0 if result.success else 2
 
     def _send_gripper_goal(self) -> int:
         current = self._wait_for_current_positions(GRIPPER_JOINT_NAMES)

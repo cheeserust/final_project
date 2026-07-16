@@ -37,6 +37,11 @@
             <div id="overviewActiveTask" class="overview-value">-</div>
             <div id="overviewTaskMeta" class="overview-meta">No active task</div>
           </article>
+          <article id="overviewButtonCard" class="overview-card neutral">
+            <div class="overview-label">Button Task</div>
+            <div id="overviewButtonState" class="overview-value">Idle</div>
+            <div id="overviewButtonMeta" class="overview-meta">No button action</div>
+          </article>
           <article id="overviewRecoveryCard" class="overview-card neutral">
             <div class="overview-label">Recovery</div>
             <div id="overviewRecoveryState" class="overview-value">No Gap</div>
@@ -45,165 +50,263 @@
         </div>
       </section>
 
-      <section class="panel mission-panel">
+      <section class="panel driving-map-panel">
         <div class="panel-heading">
           <div>
-            <h2>Mission Command</h2>
-            <div id="missionState" class="meta-line">No status</div>
+            <h2>Driving Map</h2>
+            <div id="drivingMapMeta" class="meta-line">Waiting for /map</div>
           </div>
-          <div id="missionReady" class="status-chip neutral">Action</div>
-        </div>
-
-        <form id="missionForm" class="mission-form">
-          <label>
-            Mission ID
-            <input id="missionId" name="mission_id" autocomplete="off">
-          </label>
-          <label>
-            Object
-            <input id="objectLabel" name="object_label" autocomplete="off">
-          </label>
-          <label>
-            Pickup
-            <select id="pickupLocation" name="pickup_location"></select>
-          </label>
-          <label>
-            Delivery
-            <select id="deliveryLocation" name="delivery_location"></select>
-          </label>
-          <label>
-            Floor
-            <input id="targetFloor" name="target_floor" type="number" step="1" min="1">
-          </label>
-          <div class="form-actions">
-            <button id="startMissionButton" class="primary-button" type="submit">
-              Start
+          <div class="driving-map-actions">
+            <button id="initialPoseButton" class="secondary-button" type="button">
+              Set Pose
             </button>
-            <button id="cancelMissionButton" class="secondary-button" type="button">
-              Cancel
-            </button>
-          </div>
-        </form>
-
-        <div class="progress-wrap">
-          <div class="progress-row">
-            <span>Progress</span>
-            <strong id="missionProgressText">0%</strong>
-          </div>
-          <div class="progress-track">
-            <div id="missionProgressBar" class="progress-bar"></div>
+            <div id="drivingStateChip" class="status-chip neutral">Waiting</div>
           </div>
         </div>
 
-        <div class="fsm-wrap">
-          <div class="fsm-heading">
-            <span>Mission FSM</span>
-            <strong id="elevatorFsmState">-</strong>
+        <div class="driving-map-layout">
+          <div class="map-canvas-wrap">
+            <canvas id="drivingMapCanvas" width="960" height="560"></canvas>
+            <div id="initialPoseHint" class="map-hint">Set Pose: drag on map</div>
           </div>
-          <div id="elevatorFsmSteps" class="fsm-steps"></div>
+          <dl class="status-list compact-status driving-status-list">
+            <div>
+              <dt>Pose</dt>
+              <dd id="drivingPose">-</dd>
+            </div>
+            <div>
+              <dt>Odom</dt>
+              <dd id="drivingOdom">-</dd>
+            </div>
+            <div>
+              <dt>Map</dt>
+              <dd id="drivingMapInfo">-</dd>
+            </div>
+            <div>
+              <dt>Path</dt>
+              <dd id="drivingPathInfo">-</dd>
+            </div>
+            <div>
+              <dt>State</dt>
+              <dd id="drivingNavState">-</dd>
+            </div>
+          </dl>
         </div>
-
-        <dl class="status-list">
-          <div>
-            <dt>Task</dt>
-            <dd id="missionTask">-</dd>
-          </div>
-          <div>
-            <dt>Message</dt>
-            <dd id="missionMessage">-</dd>
-          </div>
-          <div>
-            <dt>Result</dt>
-            <dd id="missionResult">-</dd>
-          </div>
-        </dl>
       </section>
 
-      <section class="panel nav-panel">
-        <div class="panel-heading">
-          <div>
-            <h2>Direct Drive</h2>
-            <div id="navState" class="meta-line">No direct navigation</div>
+      <div class="dashboard-column dashboard-column-main">
+        <section class="panel mission-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Mission Command</h2>
+              <div id="missionState" class="meta-line">No status</div>
+            </div>
+            <div id="missionReady" class="status-chip neutral">Action</div>
           </div>
-          <div id="navReady" class="status-chip neutral">Action</div>
-        </div>
 
-        <form id="navForm" class="nav-form">
-          <label>
-            Current Floor
-            <select id="navFloor" name="target_floor"></select>
-          </label>
-          <label>
-            Saved Point
-            <select id="navLocation" name="location_name"></select>
-          </label>
-          <div class="nav-actions">
-            <button id="startNavButton" class="primary-button" type="submit">
-              Go
-            </button>
-            <button id="cancelNavButton" class="secondary-button" type="button">
-              Cancel
-            </button>
-          </div>
-        </form>
+          <form id="missionForm" class="mission-form">
+            <label>
+              Mission ID
+              <input id="missionId" name="mission_id" autocomplete="off">
+            </label>
+            <label>
+              Object
+              <input id="objectLabel" name="object_label" value="object_1" readonly>
+            </label>
+            <label>
+              Arm Task
+              <select id="armTaskName" name="arm_task_name" required></select>
+            </label>
+            <label>
+              Pickup
+              <select id="pickupLocation" name="pickup_location"></select>
+            </label>
+            <label>
+              Delivery
+              <select id="deliveryLocation" name="delivery_location"></select>
+            </label>
+            <label>
+              Floor
+              <input id="targetFloor" name="target_floor" type="number" value="5" readonly>
+            </label>
+            <div class="form-actions">
+              <button id="startMissionButton" class="primary-button" type="submit">
+                Start
+              </button>
+              <button id="cancelMissionButton" class="secondary-button" type="button">
+                Cancel
+              </button>
+            </div>
+          </form>
 
-        <dl class="status-list compact-status">
-          <div>
-            <dt>Target</dt>
-            <dd id="navTarget">-</dd>
+          <div class="progress-wrap">
+            <div class="progress-row">
+              <span>Progress</span>
+              <strong id="missionProgressText">0%</strong>
+            </div>
+            <div class="progress-track">
+              <div id="missionProgressBar" class="progress-bar"></div>
+            </div>
           </div>
-          <div>
-            <dt>Feedback</dt>
-            <dd id="navFeedback">-</dd>
-          </div>
-          <div>
-            <dt>Result</dt>
-            <dd id="navResult">-</dd>
-          </div>
-        </dl>
-      </section>
 
-      <section class="panel link-panel">
-        <div class="panel-heading">
-          <div>
-            <h2>Robot Link</h2>
-            <div id="robotLinkDetail" class="meta-line">Waiting for heartbeat</div>
+          <div class="fsm-wrap">
+            <div class="fsm-heading">
+              <span>Mission FSM</span>
+              <strong id="elevatorFsmState">-</strong>
+            </div>
+            <div id="elevatorFsmSteps" class="fsm-steps"></div>
           </div>
-          <div id="robotLinkState" class="status-chip neutral">Waiting</div>
-        </div>
 
-        <dl class="status-list compact-status">
-          <div>
-            <dt>Last Seen</dt>
-            <dd id="robotLastSeen">-</dd>
-          </div>
-          <div>
-            <dt>Heartbeat</dt>
-            <dd id="robotHeartbeatAge">-</dd>
-          </div>
-          <div>
-            <dt>Last State</dt>
-            <dd id="robotLastMissionState">-</dd>
-          </div>
-          <div>
-            <dt>Last Task</dt>
-            <dd id="robotLastTask">-</dd>
-          </div>
-          <div>
-            <dt>Progress</dt>
-            <dd id="robotLastProgress">-</dd>
-          </div>
-          <div>
-            <dt>Gap</dt>
-            <dd id="robotDisconnectedDuration">-</dd>
-          </div>
-        </dl>
+          <dl class="status-list">
+            <div>
+              <dt>Task</dt>
+              <dd id="missionTask">-</dd>
+            </div>
+            <div>
+              <dt>Message</dt>
+              <dd id="missionMessage">-</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd id="missionResult">-</dd>
+            </div>
+          </dl>
+        </section>
 
-        <div class="disconnect-summary">
-          <h3>Events During Last Disconnect</h3>
-          <ul id="disconnectEvents" class="mini-event-list"></ul>
-        </div>
-      </section>
+        <section class="panel nav-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Direct Drive</h2>
+              <div id="navState" class="meta-line">No direct navigation</div>
+            </div>
+            <div id="navReady" class="status-chip neutral">Action</div>
+          </div>
+
+          <form id="navForm" class="nav-form">
+            <label>
+              Current Floor
+              <select id="navFloor" name="target_floor"></select>
+            </label>
+            <label>
+              Saved Point
+              <select id="navLocation" name="location_name"></select>
+            </label>
+            <div class="nav-actions">
+              <button id="startNavButton" class="primary-button" type="submit">
+                Go
+              </button>
+              <button id="cancelNavButton" class="secondary-button" type="button">
+                Cancel
+              </button>
+            </div>
+          </form>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>Target</dt>
+              <dd id="navTarget">-</dd>
+            </div>
+            <div>
+              <dt>Feedback</dt>
+              <dd id="navFeedback">-</dd>
+            </div>
+            <div>
+              <dt>Result</dt>
+              <dd id="navResult">-</dd>
+            </div>
+          </dl>
+        </section>
+
+      </div>
+
+      <div class="dashboard-column dashboard-column-side">
+        <section class="panel button-task-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Elevator Button Task</h2>
+              <div id="buttonTaskMeta" class="meta-line">Waiting for mission events</div>
+            </div>
+            <div id="buttonTaskChip" class="status-chip neutral">Idle</div>
+          </div>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>State</dt>
+              <dd id="buttonTaskState">-</dd>
+            </div>
+            <div>
+              <dt>Floor</dt>
+              <dd id="buttonTaskTargetFloor">-</dd>
+            </div>
+            <div>
+              <dt>Motion</dt>
+              <dd id="buttonTaskMotionResult">-</dd>
+            </div>
+            <div>
+              <dt>Physical</dt>
+              <dd id="buttonTaskPhysicalResult">UNKNOWN</dd>
+            </div>
+            <div>
+              <dt>Started</dt>
+              <dd id="buttonTaskStarted">-</dd>
+            </div>
+            <div>
+              <dt>Last Event</dt>
+              <dd id="buttonTaskLastEvent">-</dd>
+            </div>
+            <div>
+              <dt>Arm Fault</dt>
+              <dd id="buttonTaskArmFault">-</dd>
+            </div>
+            <div>
+              <dt>Gripper</dt>
+              <dd id="buttonTaskGripperFault">-</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="panel link-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Robot Link</h2>
+              <div id="robotLinkDetail" class="meta-line">Waiting for heartbeat</div>
+            </div>
+            <div id="robotLinkState" class="status-chip neutral">Waiting</div>
+          </div>
+
+          <dl class="status-list compact-status">
+            <div>
+              <dt>Last Seen</dt>
+              <dd id="robotLastSeen">-</dd>
+            </div>
+            <div>
+              <dt>Heartbeat</dt>
+              <dd id="robotHeartbeatAge">-</dd>
+            </div>
+            <div>
+              <dt>Last State</dt>
+              <dd id="robotLastMissionState">-</dd>
+            </div>
+            <div>
+              <dt>Last Task</dt>
+              <dd id="robotLastTask">-</dd>
+            </div>
+            <div>
+              <dt>Progress</dt>
+              <dd id="robotLastProgress">-</dd>
+            </div>
+            <div>
+              <dt>Gap</dt>
+              <dd id="robotDisconnectedDuration">-</dd>
+            </div>
+          </dl>
+
+          <div class="disconnect-summary">
+            <h3>Events During Last Disconnect</h3>
+            <ul id="disconnectEvents" class="mini-event-list"></ul>
+          </div>
+        </section>
+      </div>
 
       <section class="panel arm-panel">
         <div class="panel-heading">
@@ -224,6 +327,10 @@
           <button data-arm-command="estop" class="danger-command" type="button">ESTOP</button>
         </div>
 
+        <p class="meta-line safety-warning">
+          ESTOP 모터 정지
+        </p>
+
         <div id="boardGrid" class="board-grid"></div>
       </section>
 
@@ -237,7 +344,7 @@
         </div>
 
         <div class="manual-layout">
-          <div class="manual-section">
+          <div id="manualArmSection" class="manual-section">
             <div class="manual-section-heading">
               <div>
                 <h3>Arm</h3>
@@ -259,7 +366,7 @@
             </div>
           </div>
 
-          <div class="manual-section">
+          <div id="manualGripperSection" class="manual-section">
             <div class="manual-section-heading">
               <div>
                 <h3>Gripper</h3>
@@ -284,6 +391,88 @@
               </button>
             </div>
           </div>
+        </div>
+
+        <div class="saved-pose-layout">
+          <section class="saved-pose-section" aria-labelledby="savedPoseHeading">
+            <div class="saved-pose-toolbar">
+              <div>
+                <h3 id="savedPoseHeading">저장 자세</h3>
+                <div id="savedPoseStatus" class="meta-line" aria-live="polite">저장 자세를 불러오는 중</div>
+              </div>
+              <button id="openSavePoseButton" class="primary-button" type="button">
+                현재 각도 저장하기
+              </button>
+            </div>
+
+            <div class="table-wrap saved-pose-table-wrap">
+              <table class="saved-pose-table">
+                <thead>
+                  <tr>
+                    <th scope="col">ID</th>
+                    <th scope="col">이름</th>
+                    <th scope="col">불러오기</th>
+                    <th scope="col">수정하기</th>
+                    <th scope="col">삭제하기</th>
+                  </tr>
+                </thead>
+                <tbody id="savedPoseTableBody">
+                  <tr>
+                    <td colspan="5" class="empty">저장 자세를 불러오는 중</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="sequence-section" aria-labelledby="manualSequenceHeading">
+            <div class="sequence-heading">
+              <div>
+                <h3 id="manualSequenceHeading">Sequence</h3>
+                <div id="sequenceSummary" class="meta-line" aria-live="polite">대기 중</div>
+              </div>
+              <div class="sequence-actions">
+                <button id="runSequenceButton" class="primary-button" type="button" disabled>
+                  실행
+                </button>
+                <button id="stopSequenceButton" class="secondary-button" type="button" disabled>
+                  중지
+                </button>
+              </div>
+            </div>
+
+            <label class="sequence-order-field">
+              실행 순서 (ID)
+              <input id="sequencePoseOrder" type="text" autocomplete="off" placeholder="예: 2 3 1 (비우면 ID 순서)">
+            </label>
+
+            <dl class="sequence-status-list">
+              <div>
+                <dt>실행 ID</dt>
+                <dd id="sequenceRunId">-</dd>
+              </div>
+              <div>
+                <dt>상태</dt>
+                <dd id="sequenceState">IDLE</dd>
+              </div>
+              <div>
+                <dt>현재 단계</dt>
+                <dd id="sequenceStep">0 / 0</dd>
+              </div>
+              <div>
+                <dt>현재 자세</dt>
+                <dd id="sequenceCurrentPose">-</dd>
+              </div>
+              <div>
+                <dt>완료</dt>
+                <dd id="sequenceCompleted">0</dd>
+              </div>
+              <div class="sequence-error-row">
+                <dt>최근 오류</dt>
+                <dd id="sequenceLatestError">-</dd>
+              </div>
+            </dl>
+          </section>
         </div>
       </section>
 
@@ -328,6 +517,7 @@
             <h2>Event Log</h2>
             <div id="serverTime" class="meta-line">-</div>
           </div>
+          <div id="logSyncState" class="status-chip neutral">Snapshot</div>
         </div>
         <div class="log-columns">
           <div>
@@ -339,11 +529,89 @@
             <ul id="missionEventLog" class="log-list"></ul>
           </div>
           <div>
+            <h3>Sync Replay</h3>
+            <ul id="syncEventLog" class="log-list"></ul>
+          </div>
+          <div>
             <h3>Board Status</h3>
             <ul id="armLog" class="log-list"></ul>
           </div>
         </div>
       </section>
     </main>
+
+    <dialog id="savePoseDialog" class="app-dialog" aria-labelledby="savePoseDialogTitle">
+      <form id="savePoseForm" class="dialog-form">
+        <div class="dialog-heading">
+          <div>
+            <h2 id="savePoseDialogTitle">현재 각도 저장하기</h2>
+            <p>현재 입력된 팔·그리퍼 설정을 새 자세로 저장합니다.</p>
+          </div>
+        </div>
+        <div class="dialog-fields">
+          <label>
+            ID
+            <input id="savePoseId" name="id" type="number" min="1" step="1" required>
+          </label>
+          <label>
+            이름
+            <input id="savePoseName" name="name" type="text" maxlength="100" autocomplete="off" required placeholder="예: 물건 내려놓기">
+          </label>
+          <label>
+            단계 완료 후 대기시간 (초)
+            <input id="savePoseDwell" name="dwell_sec" type="number" min="0" step="0.1" value="0" required>
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-dialog-close="savePoseDialog">취소</button>
+          <button id="savePoseSubmitButton" class="primary-button" type="submit">저장하기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="editPoseDialog" class="app-dialog" aria-labelledby="editPoseDialogTitle">
+      <form id="editPoseForm" class="dialog-form">
+        <div class="dialog-heading">
+          <div>
+            <h2 id="editPoseDialogTitle">저장 자세 수정하기</h2>
+            <p>ID, 이름, 대기시간, 저장된 각도와 그리퍼 부하값을 수정할 수 있습니다.</p>
+          </div>
+        </div>
+        <div class="dialog-fields">
+          <label>
+            ID
+            <input id="editPoseId" name="id" type="number" min="1" step="1" required>
+          </label>
+          <label>
+            이름
+            <input id="editPoseName" name="name" type="text" maxlength="100" autocomplete="off" required>
+          </label>
+          <label>
+            단계 완료 후 대기시간 (초)
+            <input id="editPoseDwell" name="dwell_sec" type="number" min="0" step="0.1" required>
+          </label>
+        </div>
+        <div id="editPoseControllers" class="edit-pose-controllers"></div>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-dialog-close="editPoseDialog">취소</button>
+          <button id="editPoseSubmitButton" class="primary-button" type="submit">수정하기</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="disableConfirmDialog" class="app-dialog confirm-dialog" aria-labelledby="disableConfirmTitle">
+      <form id="disableConfirmForm" class="dialog-form">
+        <div class="dialog-heading">
+          <div>
+            <h2 id="disableConfirmTitle">모터 Disable 확인</h2>
+            <p>진짜로 disable 하겠습니까?</p>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button class="secondary-button" type="button" data-dialog-close="disableConfirmDialog">취소</button>
+          <button id="confirmDisableButton" class="danger-button" type="submit">확인</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>

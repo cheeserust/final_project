@@ -1,0 +1,1 @@
+"""VicPinky navigation adapter package."""

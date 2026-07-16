@@ -9,8 +9,6 @@ from typing import Deque, Optional
 
 from arm_can_bridge.can_protocol import (
     ALL_MOTORS,
-    BOARD_ID_ALL,
-    BOARD_ID_ALL_LEGACY,
     BOARD_ID_BOARD1,
     BOARD1_MOTOR_COUNT,
     BOARD2_REQUIRED_HOMING_MASK,
@@ -25,6 +23,7 @@ from arm_can_bridge.can_protocol import (
     CAN_ID_BOARD2_STATUS,
     CAN_ID_BOARD3_SERVO_COMMAND,
     CAN_ID_BOARD3_POSITION_FEEDBACK,
+    CAN_ID_BOARD3_GRIPPER_HOME,
     CAN_ID_BOARD3_STATUS,
     CAN_ID_CLEAR_ERROR,
     CAN_ID_ENABLE,
@@ -167,34 +166,22 @@ class Board1SimulatorModel:
             return True
 
         if frame.can_id == CAN_ID_ENABLE:
-            if not self._control_targets_this_board(
-                frame.data,
-                minimum_length=2,
-                target_index=1,
-            ):
-                return False
             self._handle_enable(frame.data)
             return True
 
         if frame.can_id == CAN_ID_HOMING:
-            if not self._control_targets_this_board(
-                frame.data,
-                minimum_length=3,
-                target_index=0,
-            ):
-                return False
-            if not self.supports_homing:
+            if not self.supports_homing or self.board_id == BOARD_ID_BOARD3:
                 return False
             self._handle_homing(frame.data)
             return True
 
-        if frame.can_id == CAN_ID_CLEAR_ERROR:
-            if not self._control_targets_this_board(
-                frame.data,
-                minimum_length=2,
-                target_index=0,
-            ):
+        if frame.can_id == CAN_ID_BOARD3_GRIPPER_HOME:
+            if self.board_id != BOARD_ID_BOARD3:
                 return False
+            self._handle_gripper_home(frame.data)
+            return True
+
+        if frame.can_id == CAN_ID_CLEAR_ERROR:
             self._handle_clear_error(frame.data)
             return True
 
@@ -203,31 +190,6 @@ class Board1SimulatorModel:
             return True
 
         return False
-
-    def _control_targets_this_board(
-        self,
-        data: bytes,
-        minimum_length: int,
-        target_index: int,
-    ) -> bool:
-        if len(data) <= target_index:
-            self._set_error(BoardError.INVALID_CMD)
-            return True
-
-        board_id = data[target_index]
-
-        if board_id not in (
-            self.board_id,
-            BOARD_ID_ALL_LEGACY,
-            BOARD_ID_ALL,
-        ):
-            return False
-
-        if len(data) < minimum_length:
-            self._set_error(BoardError.INVALID_CMD)
-            return True
-
-        return True
 
     def _is_valid_estop_payload(self, data: bytes) -> bool:
         if len(data) < 1:
@@ -246,7 +208,7 @@ class Board1SimulatorModel:
         self.state = BoardState.ESTOP
 
     def _handle_enable(self, data: bytes) -> None:
-        if len(data) < 2:
+        if len(data) < 1:
             self._set_error(BoardError.INVALID_CMD)
             return
 
@@ -266,22 +228,18 @@ class Board1SimulatorModel:
             self.state = BoardState.IDLE
 
     def _handle_homing(self, data: bytes) -> None:
-        if len(data) < 3:
+        if len(data) < 2:
             self._set_error(BoardError.INVALID_CMD)
             return
 
-        motor_id = data[1]
-        mode = data[2]
+        motor_id = data[0]
+        mode = data[1]
 
         if not self.enabled or self.state == BoardState.ESTOP:
             return
 
         if mode != 0:
             self._set_error(BoardError.INVALID_CMD)
-            return
-
-        if self.board_id == BOARD_ID_BOARD3:
-            self._handle_board3_home_posture(motor_id)
             return
 
         if motor_id == ALL_MOTORS:
@@ -302,6 +260,19 @@ class Board1SimulatorModel:
 
         if self.homing_duration_s == 0.0:
             self._finish_homing()
+
+    def _handle_gripper_home(self, data: bytes) -> None:
+        if len(data) < 3:
+            self._set_error(BoardError.INVALID_CMD)
+            return
+        motor_id = data[0]
+        mode = data[1]
+        if mode != 0:
+            self._set_error(BoardError.INVALID_CMD)
+            return
+        if not self.enabled or self.state == BoardState.ESTOP:
+            return
+        self._handle_board3_home_posture(motor_id)
 
     def _handle_board3_home_posture(self, motor_id: int) -> None:
         if motor_id != ALL_MOTORS:
@@ -329,11 +300,11 @@ class Board1SimulatorModel:
         self.state = BoardState.MOVING
 
     def _handle_clear_error(self, data: bytes) -> None:
-        if len(data) < 2:
+        if len(data) < 1:
             self._set_error(BoardError.INVALID_CMD)
             return
 
-        motor_id = data[1]
+        motor_id = data[0]
 
         if motor_id not in (*range(self.motor_count), ALL_MOTORS):
             self._set_error(BoardError.INVALID_CMD)

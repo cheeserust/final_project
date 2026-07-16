@@ -5,8 +5,11 @@ import math
 from arm_can_bridge.can_protocol import (
     ALL_MOTORS,
     angle_raw_to_rad,
+    BOARD3_SERVO_COUNT,
     BOARD3_TARGET_LOAD_MAX,
     Board3FeedbackMotorStatus,
+    BOARD_ID_BOARD2,
+    BOARD_ID_BOARD3,
     BoardError,
     BoardState,
     build_control_byte,
@@ -25,7 +28,6 @@ from arm_can_bridge.can_protocol import (
     unpack_motor_position_feedback,
     unpack_status,
 )
-
 import pytest
 
 
@@ -284,10 +286,10 @@ def test_status_unpack_and_ready_properties():
     raw = bytes([
         BoardState.IDLE,
         BoardError.NONE,
-        0x0F,
-        ALL_MOTORS,
+        0xBB,
+        0xBB,
         0x00,
-        32,
+        1,
         1,
         0,
     ])
@@ -300,6 +302,160 @@ def test_status_unpack_and_ready_properties():
     assert status.healthy is True
     assert status.prepared_for_trajectory is True
     assert status.trajectory_complete is True
+    assert status.goal_slot_free == 1
+    assert status.moving_mask == 0
+    assert status.target_reached_mask == 0x0F
+
+
+def test_board3_contact_hold_is_ready_and_complete():
+    raw = bytes([
+        BoardState.CONTACT_HOLD,
+        BoardError.NONE,
+        0x01,
+        0,
+        0x00,
+        BOARD3_SERVO_COUNT,
+        1,
+        ALL_MOTORS,
+    ])
+
+    status = unpack_status(raw, board_id=BOARD_ID_BOARD3)
+
+    assert status.state == BoardState.CONTACT_HOLD
+    assert status.healthy is True
+    assert status.prepared_for_trajectory is True
+    assert status.trajectory_complete is True
+
+
+def test_board2_legacy_status_accepts_full_queue_credit():
+    raw = bytes([
+        BoardState.IDLE,
+        BoardError.NONE,
+        0x0B,
+        0,
+        0,
+        32,
+        1,
+        7,
+    ])
+
+    status = unpack_status(
+        raw,
+        board_id=BOARD_ID_BOARD2,
+        board2_legacy=True,
+    )
+
+    assert status.goal_slot_free == 32
+    assert status.target_reached_mask == 0x01
+    assert status.trajectory_complete is True
+
+
+def test_board2_legacy_status_rejects_queue_credit_above_capacity():
+    raw = bytes([
+        BoardState.IDLE,
+        BoardError.NONE,
+        0x0B,
+        0,
+        0,
+        33,
+        1,
+        7,
+    ])
+
+    with pytest.raises(ValueError, match='0..32'):
+        unpack_status(
+            raw,
+            board_id=BOARD_ID_BOARD2,
+            board2_legacy=True,
+        )
+
+
+def test_board2_legacy_status_rejects_error_above_protocol_range():
+    raw = bytes([
+        BoardState.MOVING,
+        7,
+        0x07,
+        0,
+        0,
+        31,
+        1,
+        7,
+    ])
+
+    with pytest.raises(ValueError, match='error code'):
+        unpack_status(
+            raw,
+            board_id=BOARD_ID_BOARD2,
+            board2_legacy=True,
+        )
+
+
+@pytest.mark.parametrize('error_code', [7, 234, 235, 255])
+def test_board1_status_rejects_error_above_protocol_range(error_code):
+    raw = bytes([
+        BoardState.MOVING,
+        error_code,
+        0x44,
+        0x44,
+        0,
+        0,
+        1,
+        7,
+    ])
+
+    with pytest.raises(ValueError, match='error code'):
+        unpack_status(raw)
+
+
+@pytest.mark.parametrize('limit_bits', [0x10, 0x2E, 0xC3, 0xF0])
+def test_board1_status_rejects_limit_bits_above_four_axis_mask(limit_bits):
+    raw = bytes([
+        BoardState.MOVING,
+        BoardError.NONE,
+        0x44,
+        0x44,
+        limit_bits,
+        0,
+        1,
+        7,
+    ])
+
+    with pytest.raises(ValueError, match='limit status bits'):
+        unpack_status(raw)
+
+
+def test_board1_status_accepts_error_and_limit_boundaries():
+    status = unpack_status(bytes([
+        BoardState.MOVING,
+        BoardError.RESERVED,
+        0x44,
+        0x44,
+        0x0F,
+        0,
+        1,
+        7,
+    ]))
+
+    assert status.error_code == BoardError.RESERVED
+    assert status.limit_status_bits == 0x0F
+
+
+def test_board3_status_keeps_board_specific_error_codes_above_six():
+    status = unpack_status(
+        bytes([
+            BoardState.ERROR,
+            10,
+            0,
+            0,
+            0,
+            BOARD3_SERVO_COUNT,
+            1,
+            0,
+        ]),
+        board_id=BOARD_ID_BOARD3,
+    )
+
+    assert status.error_code == 10
 
 
 def test_error_status_is_not_ready():

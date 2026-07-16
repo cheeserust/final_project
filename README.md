@@ -1,10 +1,10 @@
 # VicPinky 중앙서버
 
-이 workspace는 VicPinky 로봇의 중앙서버 ROS 2 패키지를 모아둔 곳이다. 중앙서버는 전체 미션 순서를 조율하고, 하위 기능 서버에 일을 맡기고, MoveIt2와 STM32 보드 사이를 CAN으로 연결한다.
+이 workspace는 VicPinky 로봇의 중앙서버 ROS 2 패키지를 모아둔 곳이다. 중앙서버는 전체 미션 순서를 조율하고 하위 기능 서버와 STM32 보드를 연결한다.
 
 중요한 원칙은 두 가지다.
 
-1. 중앙서버는 로봇팔 경로를 직접 계산하지 않는다. 팔 trajectory는 MoveIt2가 만든다.
+1. Board1/2 팔 실행은 검증된 최종 관절각 5개와 duration만 받는 V3 direct goal이다. MoveIt waypoint를 CAN으로 streaming하지 않는다.
 2. 중앙서버는 베이스 주행 경로를 직접 계산하지 않는다. 주행 경로와 제어는 VicPinky Nav2가 담당하고, 중앙서버는 `/nav/go_to`를 Nav2 `NavigateToPose`로 연결한다.
 
 ## 문서 구성
@@ -15,8 +15,9 @@
 | [docs/SRC_STUDY_GUIDE.md](docs/SRC_STUDY_GUIDE.md) | `src/` 패키지/파일/코드 흐름을 공부하기 위한 상세 가이드 |
 | [docs/CODE_FILE_GROUPS.md](docs/CODE_FILE_GROUPS.md) | 실제 운용용 코드와 테스트/개발용 파일 구분표 |
 | [docs/HARDWARE_BRINGUP.md](docs/HARDWARE_BRINGUP.md) | 실제 STM32/CAN 연결 후 하드웨어 테스트 절차 |
-| [PROJECT_ONBOARDING.md](PROJECT_ONBOARDING.md) | ROS 2 기본 개념, 패키지/노드/토픽/서비스/액션 설명 |
-| [ARM_CAN_PROTOCOL.md](ARM_CAN_PROTOCOL.md) | Board1/Board2/Board3 CAN 프로토콜 상세 |
+| [docs/MOVEIT_ARM_INTEGRATION.md](docs/MOVEIT_ARM_INTEGRATION.md) | MoveIt2, ArUco, 중앙서버의 RPi/PC 통합 및 현장 보정 절차 |
+| [docs/PROJECT_ONBOARDING.md](docs/PROJECT_ONBOARDING.md) | ROS 2 기본 개념, 패키지/노드/토픽/서비스/액션 설명 |
+| [docs/ARM_CAN_PROTOCOL.md](docs/ARM_CAN_PROTOCOL.md) | Board1/Board2/Board3 CAN 프로토콜 상세 |
 
 ## 패키지 구성
 
@@ -27,11 +28,12 @@ src/
 ├── mock_task_servers/        # 하위 기능 서버 mock
 ├── central_bringup/          # mock 통합 실행 launch
 ├── vicpinky_nav_adapter/     # /nav/go_to -> Nav2 NavigateToPose adapter
-├── arm_can_bridge/           # MoveIt2 trajectory -> STM32 CAN bridge
+├── arm_can_bridge/           # direct arm goal + Board3 trajectory -> STM32 CAN
 ├── vicpinky_gui/             # 브라우저 기반 미션/Arm 관제 GUI
 ├── board1_simulator/         # vcan0 기반 Board1/Board2/Board3 simulator
 ├── roscue_arm_description/   # URDF/mesh/RViz 표시 패키지
-└── roscue_arm_moveit_config/ # MoveIt2 설정 패키지
+├── roscue_arm_moveit_config/ # MoveIt2 설정 패키지
+└── roscue_arm_pick/          # ArUco 검출, MoveIt 계획, mission arm task 실행
 ```
 
 ## 현재 구현 상태
@@ -48,19 +50,27 @@ src/
 | `dock_to_marker` | `/dock/align` | mock 제공 |
 | `board_elevator` | `/elevator/board` | 주행팀 엘리베이터 탑승 서버 |
 | `exit_elevator` | `/elevator/exit` | 주행팀 엘리베이터 하차 서버 |
-| `pick` | `/arm/pick` | mock 제공 |
-| `place` | `/arm/place` | mock 제공 |
-| `press_button` | `/arm/press_button` | mock 제공 |
+| `arm_execute` | `/arm/execute` | `roscue_arm_pick`, 운영 concrete task 실행 |
+| `pick` | `/arm/pick` | mock 또는 `roscue_arm_pick` |
+| `place` | `/arm/place` | mock 또는 `roscue_arm_pick` |
+| `press_button` | `/arm/press_button` | mock 또는 `roscue_arm_pick` |
 | `wait_door_open` | `/elevator/wait_door_open` | 주행팀 문 열림 감지 서버 |
 | `check_floor` | `/floor/check` | 주행팀 floor tag 확인 서버 |
 | `map_switch` | `/map/switch` | 주행팀 map 전환 서버 |
+| `ready_and_approach` | `/mission/ready_and_approach` | ready와 2초 지연 27 cm 주행 join |
+| `base_rotate` | `/base/rotate` | Pinky odom 기반 회전 |
 
 최종 미션 flow는 아래 상태 머신을 따른다.
 
 ```text
+ARM_HOMING
+ARM_READY_AT_PICKUP
+PICK_OBJECT_TO_TRAY
 GO_TO_ELEVATOR_FRONT
 ALIGN_ELEVATOR_TAG
 PRESS_ELEVATOR_CALL_BUTTON
+READY_AND_APPROACH_ELEVATOR_4F
+FACE_ELEVATOR_4F
 WAIT_ELEVATOR_OPEN
 ENTER_ELEVATOR
 PRESS_5F_BUTTON
@@ -68,10 +78,13 @@ WAIT_5F
 EXIT_ELEVATOR
 SWITCH_5F_MAP
 GO_TO_TARGET_PLACE
-ARM_TASK_AT_TARGET
+ROTATE_AT_DELIVERY
+DELIVER_OBJECT_FROM_TRAY
 RETURN_TO_ELEVATOR
 ALIGN_ELEVATOR_TAG_RETURN
 PRESS_ELEVATOR_CALL_BUTTON_RETURN
+READY_AND_APPROACH_ELEVATOR_5F
+FACE_ELEVATOR_5F
 WAIT_ELEVATOR_OPEN_RETURN
 ENTER_ELEVATOR_RETURN
 PRESS_4F_BUTTON
@@ -115,22 +128,27 @@ points:
 
 ### Arm CAN Bridge
 
-`arm_can_bridge`는 MoveIt2의 팔/그리퍼 `FollowJointTrajectory` goal을 받아 STM32 보드용 CAN frame으로 변환한다.
+`arm_can_bridge`는 팔의 `ExecuteArmGoal`을 Board1 Goal V3와 Board2 Arduino
+legacy goal로, 그리퍼의 `FollowJointTrajectory`를 기존 Board3 frame으로
+변환한다.
 
 현재 Action Server는 MoveIt팀 설정과 맞춰 두 개로 분리되어 있다.
 
 | Controller | Action | 대상 |
 | --- | --- | --- |
-| `arm_controller` | `/arm_controller/follow_joint_trajectory` | 팔 5축, Board1/Board2 |
+| `arm_controller` | `/arm_controller/execute_joint_goal` | 팔 최종각 5축 + duration, Board1/Board2 |
 | `gripper_controller` | `/gripper_controller/follow_joint_trajectory` | 그리퍼 9축, Board3 |
+
+| Joint | Board ID | Payload Motor ID | Min deg | Max deg | Home deg | Min raw | Max raw | Home raw |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `base_joint` | 1 | 3 | -90 | 180 | -90 | -9000 | 18000 | -9000 |
+| `arm_joint_1` | 1 | 0 | -86.5 | 90 | -86.5 | -8650 | 9000 | -8650 |
+| `arm_joint_2` | 1 | 1 | -78.1 | 80 | -78.1 | -7810 | 8000 | -7810 |
+| `arm_joint_3` | 1 | 2 | -91.5 | 90 | -91.5 | -9150 | 9000 | -9150 |
+| `arm_joint_4` | 2 | 0 | -90 | 90 | -90 | -9000 | 9000 | -9000 |
 
 | Joint | 범위 | Home | Board | Motor ID |
 | --- | --- | --- | --- | --- |
-| `base_joint` | -90 deg ~ 180 deg | -90 deg | Board2 | 0 |
-| `arm_joint_1` | -90 deg ~ 90 deg | -90 deg | Board1 | 0 |
-| `arm_joint_2` | -80 deg ~ 80 deg | -80 deg | Board1 | 1 |
-| `arm_joint_3` | -90 deg ~ 90 deg | -90 deg | Board1 | 2 |
-| `arm_joint_4` | -170 deg ~ 170 deg | -170 deg | Board1 | 3 |
 | `finger_1_base_joint` | -70.3 deg ~ 70.3 deg | 0 deg | Board3 | 0 |
 | `finger_1_middle_joint` | -137.7 deg ~ 52.7 deg | 0 deg | Board3 | 1 |
 | `finger_1_tip_joint` | -111.3 deg ~ 111.3 deg | 0 deg | Board3 | 2 |
@@ -141,29 +159,38 @@ points:
 | `finger_3_middle_joint` | -137.7 deg ~ 52.7 deg | 0 deg | Board3 | 7 |
 | `finger_3_tip_joint` | -111.3 deg ~ 111.3 deg | 0 deg | Board3 | 8 |
 
-MoveIt2 팀이 arm trajectory를 보내면 중앙서버는 Board1/Board2 CAN frame으로 나눠 전송한다. gripper trajectory는 별도 Action으로 받아 Board3 CAN frame으로 전송한다. `/joint_states`는 실제 위치 피드백이 들어오면 `0x301/0x302/0x303` actual position을 우선 사용하고, 피드백이 아직 없을 때는 commanded estimate를 사용한다.
+팔 direct goal은 joint name으로 매핑해 Board1 4 frame과 Board2 1 frame을
+만든다. Board1 READY 뒤 Board2 legacy frame을 보내고 Board1만 START한다.
+최종각 직행은 MoveIt 충돌 회피 경로를 보존하지 않으므로 검증된 joint pose에만
+사용한다. gripper trajectory는 기존 Board3 Action을 유지한다. `/joint_states`는
+`0x301/0x302/0x303` actual position feedback을 우선 사용한다.
 
 ### CAN 보드
 
 | Board | 대상 | 명령 CAN ID | 상태 CAN ID | 위치 피드백 CAN ID |
 | --- | --- | --- | --- | --- |
-| Board1 | `arm_joint_1`~`arm_joint_4` step motor | `0x101` | `0x201` | `0x301` |
-| Board2 | `base_joint` step motor | `0x102` | `0x202` | `0x302` |
+| Board1 | `arm_joint_1~3 + base_joint` step motor | `0x101` | `0x201` | `0x301` |
+| Board2 | `arm_joint_4` step motor | `0x102` | `0x202` | `0x302` |
 | Board3 | three-finger gripper servo 9개 | `0x103` | `0x203` | `0x303` |
 
 공통 control command는 CAN ID를 공유하지만 payload 구조가 명령마다 다르다.
-전체 broadcast는 `0xFF`를 기본으로 쓰고, legacy 호환용 `0x00`도 전체로 해석한다.
+공통 제어 frame payload에는 Board ID를 넣지 않는다. 보드는 CAN ID와 각
+firmware의 명령 지원 범위로 구분한다.
 
 | CAN ID | 의미 | 8-byte payload 시작 |
 | --- | --- | --- |
 | `0x001` | ESTOP | `[1, 0, 0, 0, 0, 0, 0, 0]` |
-| `0x010` | Enable / Disable | `[enable, target_board, 0, 0, 0, 0, 0, 0]` |
-| `0x020` | Homing | `[target_board, target_local_motor, mode, 0, 0, 0, 0, 0]` |
-| `0x030` | Clear Error | `[target_board, target_local_motor, 0, 0, 0, 0, 0, 0]` |
+| `0x010` | Enable / Disable | `[enable, 0, 0, 0, 0, 0, 0, 0]` |
+| `0x020` | Board1/2 Homing | `[target_local_motor, mode, 0, 0, 0, 0, 0, 0]` |
+| `0x023` | Board3 Gripper Home | `[target_local_motor, mode, duration, 0, 0, 0, 0, 0]` |
+| `0x030` | Clear Error | `[target_local_motor, 0, 0, 0, 0, 0, 0, 0]` |
 
 상세 payload는 [ARM_CAN_PROTOCOL.md](ARM_CAN_PROTOCOL.md)를 본다.
 
-Board1/2 실제 각도는 `0x301/0x302`로 받는다. Payload는 `[local_motor_id, flags, current_pos int32 little-endian, error_code, sequence]`이고, 각도 단위는 command target과 같은 0.01도다. Board1은 20ms마다 2프레임, Board2는 20ms마다 1프레임을 보낸다. Board3 `0x203` status는 Board1/2와 일부 byte 의미가 다르다. Byte3은 moving motor가 아니라 `staging_count`, Byte5는 32-slot queue가 아니라 9개 gripper staging buffer의 free count, Byte7은 `fault_motor_id`다. Board3 실제 각도는 별도 `0x303` 3프레임 압축 피드백으로 받으며, 각도 단위는 `int16` 0.01도이고 중앙서버가 radian으로 변환한다. Board3는 20ms마다 3프레임을 보낸다. `0x303` Byte7의 모터별 2-bit 상태는 `00 OK`, `01 MOVING`, `10 CONTACT_HOLD`, `11 ERROR`로 사용한다.
+Board1/2 실제 각도는 `0x301/0x302`의 packed `int16` 4개로 받는다.
+Board2는 첫 번째 값만 사용하며 단위는 command target과 같은 0.01도다.
+Board3 실제 각도는 `0x303` 3프레임 압축 피드백으로 받고 중앙서버가
+radian으로 변환한다.
 
 ## 전체 흐름
 
@@ -172,11 +199,15 @@ flowchart LR
     Client[Mission Client] -->|ExecuteMission| MM[mission_manager]
     MM -->|RunTask| Nav[/nav/go_to]
     Nav -->|NavigateToPose| Nav2[VicPinky Nav2]
-    MM -->|RunTask| Task[/arm, dock, elevator tasks]
+    MM -->|RunTask /arm/execute| ArmTask[roscue_arm_pick]
+    MM -->|RunTask| Task[dock, elevator tasks]
     MM -->|MissionStatus| Status[/mission/status]
 
-    MoveIt[MoveIt2] -->|arm FollowJointTrajectory| Bridge[arm_can_bridge]
-    MoveIt -->|gripper FollowJointTrajectory| Bridge
+    Detector[RPi ArUco detector] -->|DetectedMarker| ArmTask
+    ArmTask -->|MoveGroup plan| MoveIt[MoveIt2 move_group]
+    MoveIt -->|planned trajectory| ArmTask
+    ArmTask -->|arm ExecuteArmGoal| Bridge[arm_can_bridge]
+    ArmTask -->|gripper FollowJointTrajectory| Bridge
     Bridge -->|0x101| Board1[STM32 Board1]
     Bridge -->|0x102| Board2[STM32 Board2]
     Bridge -->|0x103| Board3[STM32 Board3]
@@ -219,15 +250,16 @@ ros2 run mission_manager send_demo_mission
 ros2 run mission_manager send_mission --list-locations
 ```
 
-기본 데모는 4층 `home`에서 시작해 5층 `object_place`로 이동하고,
-팔 작업 후 4층 `home`으로 복귀하는 최종 엘리베이터 미션이다.
+기본 데모는 4층 `402`에서 인형을 적재하고 5층 `object_place`에 배치한 뒤
+4층 `402`로 복귀하는 최종 엘리베이터 미션이다.
 
 ```bash
-# home에서 object_place로 이동, target floor는 object_place 기준 5층으로 자동 추론
+# 402 -> object_place -> 402
 ros2 run mission_manager send_mission \
-  --pickup-location home \
+  --pickup-location 402 \
   --delivery-location object_place \
-  --object box
+  --object object_1 \
+  --arm-task-name deliver_object_1_from_tray
 ```
 
 상태 확인:
@@ -268,7 +300,7 @@ ros2 launch vicpinky_gui vicpinky_gui.launch.py port:=8081
 중앙서버 최종 미션 상태는 `/mission/status` 또는 `ExecuteMission.Feedback`으로 올라오며 GUI의 `Mission FSM` 영역에 자동 표시된다.
 
 ```text
-GO_TO_ELEVATOR_FRONT -> ... -> RETURN_HOME -> DONE
+ARM_HOMING -> PICK_OBJECT_TO_TRAY -> ... -> RETURN_HOME -> DONE
 ```
 
 ## 실제 VicPinky 주행 연결
@@ -336,7 +368,7 @@ ros2 launch board1_simulator board1_simulator.launch.py
 
 ```bash
 source ~/vicpinky_server_ws/install/setup.bash
-ros2 launch arm_can_bridge arm_can_bridge.launch.py
+ros2 launch arm_can_bridge arm_can_bridge.launch.py execution_mode:=hardware
 ```
 
 터미널 3:
@@ -355,53 +387,18 @@ ros2 run arm_can_bridge send_test_trajectory
 ros2 topic echo /joint_states
 ```
 
-## MoveIt2 controller 설정
+## Motion Action
 
-MoveIt2 controller 설정은 `arm_can_bridge`의 Action 이름과 joint 순서가 같아야 한다.
-
-```yaml
-moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
-
-moveit_simple_controller_manager:
-  controller_names:
-    - arm_controller
-    - gripper_controller
-
-  arm_controller:
-    type: FollowJointTrajectory
-    action_ns: follow_joint_trajectory
-    default: true
-    joints:
-      - base_joint
-      - arm_joint_1
-      - arm_joint_2
-      - arm_joint_3
-      - arm_joint_4
-
-  gripper_controller:
-    type: FollowJointTrajectory
-    action_ns: follow_joint_trajectory
-    default: true
-    joints:
-      - finger_1_base_joint
-      - finger_1_middle_joint
-      - finger_1_tip_joint
-      - finger_2_base_joint
-      - finger_2_middle_joint
-      - finger_2_tip_joint
-      - finger_3_base_joint
-      - finger_3_middle_joint
-      - finger_3_tip_joint
-```
-
-최종 Action 이름:
+최종 Action 이름은 다음과 같다.
 
 ```text
-/arm_controller/follow_joint_trajectory
+/arm_controller/execute_joint_goal
 /gripper_controller/follow_joint_trajectory
 ```
 
-MoveIt2 팀의 URDF/SRDF/controller 설정도 위 joint 이름과 순서를 맞춰야 한다. 중앙서버는 arm controller에서 Board1/Board2를, gripper controller에서 Board3를 담당한다.
+MoveIt은 plan-only 안전 검토에 사용할 수 있지만 그 trajectory 또는 마지막
+point를 Board1/2 실행 입력으로 재사용하지 않는다. 실행할 arm target은 direct
+joint-goal API로 별도 제공해야 한다.
 
 ## 실제 STM32 연결
 
@@ -445,13 +442,19 @@ cd ~/vicpinky_server_ws
 source /opt/ros/jazzy/setup.bash
 colcon test --packages-select arm_can_bridge board1_simulator --event-handlers console_direct+
 colcon test --packages-select vicpinky_nav_adapter --event-handlers console_direct+
+colcon test --packages-select mission_manager roscue_arm_pick central_bringup vicpinky_gui \
+  --event-handlers console_direct+
 ```
 
 현재 확인된 결과:
 
 ```text
-arm_can_bridge: 45 passed, 1 skipped
-board1_simulator: 9 passed
+arm_can_bridge: 82 passed, 1 skipped
+board1_simulator: 17 passed
+mission_manager: 7 passed, 1 skipped
+roscue_arm_pick: 26 passed, 1 skipped
+central_bringup: 2 passed, 1 skipped
+vicpinky_gui: 1 passed
 vicpinky_nav_adapter: 2 passed, 1 skipped
 ```
 

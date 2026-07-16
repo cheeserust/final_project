@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import socket
 import struct
 import threading
@@ -126,6 +127,11 @@ class SocketCanTransport:
         self._stop_event = threading.Event()
         self._state_lock = threading.RLock()
         self._send_lock = threading.Lock()
+        self._sent_frames = 0
+        self._received_frames = 0
+        self._send_errors = 0
+        self._receive_errors = 0
+        self._short_writes = 0
 
     @property
     def interface_name(self) -> str:
@@ -152,6 +158,41 @@ class SocketCanTransport:
         """Return whether the SocketCAN socket is currently open."""
         with self._state_lock:
             return self._socket is not None
+
+    def diagnostics(self) -> dict[str, object]:
+        """Return application counters plus Linux interface statistics."""
+        with self._state_lock:
+            result: dict[str, object] = {
+                'interface': self._interface_name,
+                'open': self._socket is not None,
+                'sent_frames': self._sent_frames,
+                'received_frames': self._received_frames,
+                'send_errors': self._send_errors,
+                'receive_errors': self._receive_errors,
+                'short_writes': self._short_writes,
+            }
+        interface_path = Path('/sys/class/net') / self._interface_name
+        try:
+            result['operstate'] = (
+                interface_path / 'operstate'
+            ).read_text(encoding='utf-8').strip()
+        except OSError:
+            result['operstate'] = 'unavailable'
+        for name in (
+            'tx_errors',
+            'rx_errors',
+            'tx_dropped',
+            'rx_dropped',
+        ):
+            try:
+                result[name] = int(
+                    (interface_path / 'statistics' / name)
+                    .read_text(encoding='utf-8')
+                    .strip()
+                )
+            except (OSError, ValueError):
+                result[name] = None
+        return result
 
     def open(self) -> None:  # noqa: A003
         """Open the CAN RAW socket and start its receiver thread."""
@@ -238,15 +279,21 @@ class SocketCanTransport:
             with self._send_lock:
                 sent_bytes = can_socket.send(encoded)
         except OSError as exc:
+            with self._state_lock:
+                self._send_errors += 1
             raise SocketCanTransportError(
                 f'Failed to send CAN ID {frame.can_id:#x}: {exc}'
             ) from exc
 
         if sent_bytes != CAN_FRAME_SIZE:
+            with self._state_lock:
+                self._short_writes += 1
             raise SocketCanTransportError(
                 f'Partial SocketCAN write: '
                 f'{sent_bytes}/{CAN_FRAME_SIZE} bytes'
             )
+        with self._state_lock:
+            self._sent_frames += 1
 
     def __enter__(self) -> 'SocketCanTransport':
         """Open the transport for use in a context manager."""
@@ -272,6 +319,8 @@ class SocketCanTransport:
                 continue
             except OSError as exc:
                 if not self._stop_event.is_set():
+                    with self._state_lock:
+                        self._receive_errors += 1
                     self._report_error(
                         SocketCanTransportError(
                             f'SocketCAN receive failed: {exc}'
@@ -284,12 +333,16 @@ class SocketCanTransport:
             except UnsupportedSocketCanFrame:
                 continue
             except Exception as exc:
+                with self._state_lock:
+                    self._receive_errors += 1
                 self._report_error(exc)
                 continue
 
             if self._receive_ids and frame.can_id not in self._receive_ids:
                 continue
 
+            with self._state_lock:
+                self._received_frames += 1
             self._dispatch_frame(frame)
 
     def _dispatch_frame(self, frame: CanFrame) -> None:
