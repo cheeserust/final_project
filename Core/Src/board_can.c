@@ -1,7 +1,7 @@
 #include "../Inc/board_can.h"
 #include "../Inc/gpio.h"
 #include "../Inc/stepper.h"
-#include "../Inc/trajectory.h"
+#include "../Inc/move.h"
 
 static volatile uint8_t g_status_event;
 static uint8_t g_status_sequence_counter;
@@ -55,7 +55,7 @@ static uint8_t make_position_flags(uint8_t motor_id,
 
 static uint8_t frame_is_exact_8_bytes(const CanFrame *frame)
 {
-    return (frame != 0 && frame->dlc == 8) ? 1 : 0;
+    return frame->dlc == 8;
 }
 
 static uint8_t reserved_zero(const CanFrame *frame, uint8_t start_index)
@@ -73,20 +73,16 @@ void board_can_request_status_event(void)
 
 static void enter_error(uint8_t error_code)
 {
-    trajectory_clear();
+    move_clear();
     g_error_code = error_code;
     if (!ESTOP_ACTIVE()) g_state = STATE_ERROR;
     board_can_request_status_event();
 }
 
-static uint8_t motion_command_allowed(void)
+static uint8_t move_command_allowed(void)
 {
-    if (!g_enabled) return 0;
-    if (ESTOP_ACTIVE()) return 0;
-    if (g_error_code != ERR_NONE) return 0;
-    if (g_homing_active) return 0;
-    if (!system_all_homed()) return 0;
-    return 1;
+    return g_enabled && !ESTOP_ACTIVE() && g_error_code == ERR_NONE &&
+           !g_homing_active && system_all_homed();
 }
 
 static uint8_t goal_ack_is_repetitive(uint8_t result)
@@ -165,14 +161,15 @@ void board_can_cancel_goal_acks(void)
     g_ack_tx_head = g_ack_tx_tail;
 }
 
-void board_can_drain_goal_events(void)
+void board_can_check_goal_timeout(void)
 {
     uint8_t goal_id;
     uint8_t mask;
     uint16_t duration_ms;
-    while (trajectory_take_timeout_event(&goal_id, &mask, &duration_ms)) {
-        queue_goal_ack(GOAL_ACK_STAGING_TIMEOUT, goal_id, mask, duration_ms);
-    }
+    if (!move_check_staging_timeout(&goal_id, &mask, &duration_ms)) return;
+
+    queue_goal_ack(GOAL_ACK_STAGING_TIMEOUT, goal_id, mask, duration_ms);
+    board_can_request_status_event();
 }
 
 static void handle_estop(const CanFrame *frame)
@@ -187,7 +184,7 @@ static void handle_estop(const CanFrame *frame)
     g_estop = 1;
     g_homing_active = 0;
     g_state = STATE_ESTOP;
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     board_can_cancel_goal_acks();
     board_can_request_status_event();
@@ -205,7 +202,7 @@ static void handle_enable_disable(const CanFrame *frame)
 
     if (frame->data[0] == 1) {
         if (g_error_code != ERR_NONE || g_state == STATE_ERROR || g_state == STATE_ESTOP) {
-            trajectory_clear();
+            move_clear();
         }
         g_estop = 0;
         g_error_code = ERR_NONE;
@@ -216,7 +213,7 @@ static void handle_enable_disable(const CanFrame *frame)
             g_state = STATE_IDLE;
         }
     } else if (frame->data[0] == 0) {
-        trajectory_clear();
+        move_clear();
         stepper_stop_all();
         g_homing_active = 0;
         g_enabled = 0;
@@ -244,7 +241,7 @@ static void handle_arm_homing(const CanFrame *frame)
     }
 
     g_error_code = ERR_NONE;
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     stepper_start_homing_all();
     board_can_request_status_event();
@@ -260,7 +257,7 @@ static void handle_clear_error(const CanFrame *frame)
 
     g_estop = 0;
     g_error_code = ERR_NONE;
-    trajectory_clear();
+    move_clear();
     g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     board_can_request_status_event();
 }
@@ -290,7 +287,7 @@ static void handle_board_move(const CanFrame *frame)
     goal_id = frame->data[5];
     duration_ms = read_u16_le(&frame->data[6]);
 
-    if (!motion_command_allowed() || !(b0 & CAN_CTRL_EXECUTE) ||
+    if (!move_command_allowed() || !(b0 & CAN_CTRL_EXECUTE) ||
         !(b0 & CAN_CTRL_GOAL_V3) || relative || motor_id >= AXIS_COUNT ||
         duration_ms == 0) {
         queue_goal_ack(GOAL_ACK_INVALID, goal_id, 0, duration_ms);
@@ -299,13 +296,13 @@ static void handle_board_move(const CanFrame *frame)
 
     target_raw = read_i32_le(&frame->data[1]);
 
-    if (!trajectory_resolve_target_step(motor_id, target_raw, relative, step_mode, &target_step)) {
+    if (!move_resolve_target_step(motor_id, target_raw, relative, step_mode, &target_step)) {
         queue_goal_ack(GOAL_ACK_INVALID, goal_id, 0, duration_ms);
         return;
     }
 
-    result = trajectory_stage_goal_axis(motor_id, target_step, goal_id,
-                                        duration_ms, &mask);
+    result = move_stage_goal_axis(motor_id, target_step, goal_id,
+                                  duration_ms, &mask);
     if (result == GOAL_STAGE_READY) {
         queue_goal_ack(GOAL_ACK_READY, goal_id, mask, duration_ms);
         board_can_request_status_event();
@@ -323,20 +320,20 @@ static void handle_goal_control(const CanFrame *frame)
     uint8_t goal_id;
     uint16_t duration_ms;
     if (!frame_is_exact_8_bytes(frame) || !reserved_zero(frame, 2)) {
-        queue_goal_ack(GOAL_ACK_INVALID, frame ? frame->data[1] : 0, 0, 0);
+        queue_goal_ack(GOAL_ACK_INVALID, frame->data[1], 0, 0);
         return;
     }
     goal_id = frame->data[1];
-    duration_ms = trajectory_goal_duration_ms();
+    duration_ms = move_goal_duration_ms();
     if (frame->data[0] == GOAL_CONTROL_START) {
-        if (!motion_command_allowed() || !trajectory_start_goal(goal_id)) {
-            queue_goal_ack(GOAL_ACK_INVALID, goal_id, trajectory_goal_mask(), duration_ms);
+        if (!move_command_allowed() || !move_start_goal(goal_id)) {
+            queue_goal_ack(GOAL_ACK_INVALID, goal_id, move_goal_mask(), duration_ms);
             return;
         }
-        queue_goal_ack(GOAL_ACK_STARTED, goal_id, trajectory_goal_mask(), duration_ms);
+        queue_goal_ack(GOAL_ACK_STARTED, goal_id, move_goal_mask(), duration_ms);
     } else if (frame->data[0] == GOAL_CONTROL_CANCEL) {
-        if (!trajectory_cancel_goal(goal_id)) {
-            queue_goal_ack(GOAL_ACK_CONFLICT, goal_id, trajectory_goal_mask(), duration_ms);
+        if (!move_cancel_goal(goal_id)) {
+            queue_goal_ack(GOAL_ACK_CONFLICT, goal_id, move_goal_mask(), duration_ms);
             return;
         }
         queue_goal_ack(GOAL_ACK_CANCELLED, goal_id, 0, duration_ms);
@@ -349,8 +346,6 @@ static void handle_goal_control(const CanFrame *frame)
 
 void board_can_handle_frame(const CanFrame *frame)
 {
-    if (frame == 0) return;
-
     /* Once START has made the goal active, the board owns that goal until it
      * reaches the target. Ignore cancel, disable, homing, clear-error, and new
      * move/start commands. A valid E-stop remains the only CAN command that
@@ -404,7 +399,7 @@ void board_can_queue_status(void)
     }
     state_snapshot = g_state;
     fatal_error_snapshot = g_error_code;
-    reported_error_snapshot = system_reported_error_code();
+    reported_error_snapshot = g_error_code;
     enabled_snapshot = g_enabled;
     homing_done_snapshot = g_homing_done_bits;
     homing_active_snapshot = g_homing_active;
@@ -427,8 +422,8 @@ void board_can_queue_status(void)
     frame.data[2] = (uint8_t)(axis_flags[0] | (uint8_t)(axis_flags[1] << 4));
     frame.data[3] = (uint8_t)(axis_flags[2] | (uint8_t)(axis_flags[3] << 4));
     frame.data[4] = stepper_limit_switch_status_bits();
-    frame.data[5] = ESTOP_ACTIVE() ? 0 : trajectory_goal_slot_free();
-    frame.data[6] = system_enabled_status();
+    frame.data[5] = ESTOP_ACTIVE() ? 0 : move_goal_slot_free();
+    frame.data[6] = g_enabled;
     frame.data[7] = g_status_sequence_counter;
 
     g_pending_status_frame = frame;

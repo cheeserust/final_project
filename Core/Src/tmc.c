@@ -45,8 +45,6 @@ static void tmc_write(uint8_t axis_id, uint8_t addr, uint32_t data)
 {
     uint8_t tx[5];  //주소 1바이트 + 데이터 4바이트
 
-    if (axis_id >= AXIS_COUNT) return;  // 잘못된 축 번호는 무시
-    
     tx[0] = addr | 0x80;          // write bit가 set된 레지스터 주소
     tx[1] = (uint8_t)(data >> 24); // data MSB
     tx[2] = (uint8_t)(data >> 16); 

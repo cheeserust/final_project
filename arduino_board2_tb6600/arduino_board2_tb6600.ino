@@ -245,7 +245,7 @@ static uint32_t absStepDelta(int32_t a, int32_t b)
 {
     int64_t d = (int64_t)a - (int64_t)b;
     if (d < 0) d = -d;
-    if (d > 0xFFFFFFFFLL) return 0xFFFFFFFFUL;
+    if (d > 0xFFFFFFFFLL) return 0xFFFFFFFFL;
     return (uint32_t)d;
 }
 
@@ -255,12 +255,12 @@ static bool queuePush(int32_t targetStep, uint8_t duration5ms)
 
     int32_t referenceStep = queueReferenceStep();
     uint32_t delta = absStepDelta(targetStep, referenceStep);
-    uint32_t requestedMs = (uint32_t)duration5ms * 5UL;
+    uint32_t requestedMs = (uint32_t)duration5ms * 5L;
     uint32_t effectiveMs = requestedMs == 0 ? 1 : requestedMs;
 
     if (delta > 0) {
         uint32_t requiredMs =
-            (uint32_t)((delta * 1000UL + (uint32_t)MOTION_MAX_STEP_RATE_SPS - 1UL) /
+            (uint32_t)((delta * 1000L + (uint32_t)MOTION_MAX_STEP_RATE_SPS - 1L) /
                        (uint32_t)MOTION_MAX_STEP_RATE_SPS);
         if (requiredMs > effectiveMs) effectiveMs = requiredMs;
     }

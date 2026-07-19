@@ -1,7 +1,7 @@
 #include "../Inc/stm32f4xx_it.h"
 #include "../Inc/config.h"
 #include "../Inc/stepper.h"
-#include "../Inc/trajectory.h"
+#include "../Inc/move.h"
 
 static void systick_init(void)
 {
@@ -17,7 +17,7 @@ static void tim2_init_10us(void)
     TIM2->ARR = 10 - 1;   // 10us마다 interrupt 발생
     TIM2->DIER |= TIM_DIER_UIE;       // interrupt enable
     TIM2->CR1 |= TIM_CR1_CEN;         // TIM2 카운터 시작
-    /* STEP pulse timing must preempt the slower 1ms trajectory/homing work. */
+    /* STEP pulse timing must preempt the slower 1ms motion/homing work. */
     NVIC_SetPriority(TIM2_IRQn, 1);
     NVIC_EnableIRQ(TIM2_IRQn);        // TIM2 인터럽트 NVIC 활성화
 }
@@ -76,7 +76,7 @@ void TIM3_IRQHandler(void)
     if (TIM3->SR & (1 << 0)) {
         TIM3->SR &= ~(1 << 0);  // UIF clear: update interrupt flag 초기화
 
-        trajectory_1ms_interrupt();  // 1ms 주기로 궤적 보간 목표 위치 갱신
+        move_check_completion_1ms();
         stepper_motion_1ms_interrupt();
         stepper_1ms_interrupt(); // 1ms주기로 리미트 스위치 판단
         stepper_homing_1ms();

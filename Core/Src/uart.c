@@ -2,7 +2,7 @@
 #include "../Inc/board_can.h"
 #include "../Inc/gpio.h"
 #include "../Inc/stepper.h"
-#include "../Inc/trajectory.h"
+#include "../Inc/move.h"
 #include <stdint.h>
 
 #define UART_BAUD              115200
@@ -71,12 +71,12 @@ static void gpio_af7(GPIO_TypeDef *port, uint8_t pin)
 
 static void gpio_set_pin(GPIO_TypeDef *port, uint8_t pin)
 {
-    port->BSRR = (1 << pin);
+    port->BSRR = ((uint32_t)1 << pin);
 }
 
 static void gpio_clear_pin(GPIO_TypeDef *port, uint8_t pin)
 {
-    port->BSRR = (1 << (pin + 16));
+    port->BSRR = ((uint32_t)1 << (pin + 16));
 }
 
 static void uart2_putc_raw(char ch)
@@ -262,8 +262,6 @@ static uint8_t tmc_uart_transfer(uint8_t axis_id, uint8_t addr, uint32_t tx_data
     uint8_t status;
     uint32_t rx = 0;
 
-    if (axis_id >= AXIS_COUNT) return 0;
-
     tmc_uart_cs_low(axis_id);
     status = tmc_uart_transfer_byte(addr);
     rx |= (uint32_t)tmc_uart_transfer_byte((uint8_t)(tx_data >> 24)) << 24;
@@ -347,14 +345,10 @@ static void print_help(void)
     print_prompt();
 }
 
-static uint8_t motion_command_allowed(void)
+static uint8_t move_command_allowed(void)
 {
-    if (!g_enabled) return 0;
-    if (ESTOP_ACTIVE()) return 0;
-    if (g_error_code != ERR_NONE) return 0;
-    if (g_homing_active) return 0;
-    if (!system_all_homed()) return 0;
-    return 1;
+    return g_enabled && !ESTOP_ACTIVE() && g_error_code == ERR_NONE &&
+           !g_homing_active && system_all_homed();
 }
 
 static void print_status(void)
@@ -371,7 +365,7 @@ static void print_status(void)
 
     tick_snapshot = global_tick_ms;
     state_snapshot = g_state;
-    error_snapshot = system_reported_error_code();
+    error_snapshot = g_error_code;
     enabled_snapshot = g_enabled;
     estop_snapshot = g_estop;
     homed_snapshot = g_homing_done_bits;
@@ -418,7 +412,7 @@ static void print_status(void)
 static void handle_enable(void)
 {
     if (g_error_code != ERR_NONE || g_state == STATE_ERROR || g_state == STATE_ESTOP) {
-        trajectory_clear();
+        move_clear();
     }
     g_estop = 0;
     g_error_code = ERR_NONE;
@@ -434,7 +428,7 @@ static void handle_enable(void)
 
 static void handle_disable(void)
 {
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     g_homing_active = 0;
     g_enabled = 0;
@@ -448,7 +442,7 @@ static void handle_clear_error(void)
 {
     g_estop = 0;
     g_error_code = ERR_NONE;
-    trajectory_clear();
+    move_clear();
     g_state = g_enabled ? STATE_IDLE : STATE_DISABLED;
     uart2_puts("OK clear error\n");
     print_prompt();
@@ -463,7 +457,7 @@ static void handle_home(void)
     }
 
     g_error_code = ERR_NONE;
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     stepper_start_homing_all();
     uart2_puts("OK homing\n");
@@ -483,7 +477,7 @@ static void handle_home_axis(uint8_t axis)
         return;
     }
 
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     stepper_start_homing(axis);
     uart2_puts("OK homing axis");
@@ -494,7 +488,7 @@ static void handle_home_axis(uint8_t axis)
 
 static void handle_stop(void)
 {
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     if (g_enabled && !ESTOP_ACTIVE() && g_error_code == ERR_NONE) {
         g_state = STATE_IDLE;
@@ -509,7 +503,7 @@ static void handle_estop(void)
     g_estop = 1;
     g_homing_active = 0;
     g_state = STATE_ESTOP;
-    trajectory_clear();
+    move_clear();
     stepper_stop_all();
     board_can_cancel_goal_acks();
     uart2_puts("OK estop\n");
@@ -643,7 +637,7 @@ static void handle_raw_jog_command(const char *line)
 
     axis = (uint8_t)(line[1] - '1');
     dir = (line[2] == '+') ? DIR_POSITIVE : DIR_NEGATIVE;
-    trajectory_clear();
+    move_clear();
     raw_set_dir(axis, dir);
 
     uart2_puts("RAW jog axis");
@@ -675,7 +669,6 @@ static void handle_raw_jog_command(const char *line)
     }
 
     raw_step_low(axis);
-    trajectory_sync_planned_to_current();
     if (stopped) uart2_puts("OK raw jog stopped\n");
     else uart2_puts("OK raw jog done\n");
     print_prompt();
@@ -732,28 +725,28 @@ static void handle_move_command(const char *line)
         print_prompt();
         return;
     }
-    if (!motion_command_allowed()) {
+    if (!move_command_allowed()) {
         uart2_puts("ERR: need enabled, homed, no estop/error\n");
         print_prompt();
         return;
     }
 
     delta = (line[1] == '+') ? (int32_t)steps : -(int32_t)steps;
-    if (!trajectory_resolve_target_step(axis, delta, 1, 1, &selected_target)) {
+    if (!move_resolve_target_step(axis, delta, 1, 1, &selected_target)) {
         uart2_puts("ERR: target out of range\n");
         print_prompt();
         return;
     }
 
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
-        targets[i] = trajectory_get_planned_step(i);
+        targets[i] = g_current_step[i];
     }
     __DMB();
     targets[axis] = selected_target;
 
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
-        result = trajectory_stage_goal_axis(i, targets[i], s_debug_goal_id,
-                                            (uint16_t)duration_ms, &mask);
+        result = move_stage_goal_axis(i, targets[i], s_debug_goal_id,
+                                      (uint16_t)duration_ms, &mask);
         if (result == GOAL_STAGE_INVALID || result == GOAL_STAGE_BUSY) {
             uart2_puts("ERR: invalid move\n");
             print_prompt();
@@ -761,7 +754,7 @@ static void handle_move_command(const char *line)
         }
     }
 
-    if (result == GOAL_STAGE_READY && trajectory_start_goal(s_debug_goal_id)) {
+    if (result == GOAL_STAGE_READY && move_start_goal(s_debug_goal_id)) {
         s_debug_goal_id++;
         uart2_puts("OK move axis");
         uart2_put_u32((uint32_t)axis + 1);

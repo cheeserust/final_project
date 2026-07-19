@@ -83,7 +83,7 @@
 #define BOARD_ACK_CAN_ID         0x402
 #endif
 
-#define MOTION_FEED_ONE_Q16      65536u
+#define MOTION_FEED_ONE_Q16      65536
 
 #define HOMING_ALL_AXIS          255
 #define LIMIT_SWITCH_ACTIVE_HIGH  1
@@ -107,9 +107,6 @@ extern volatile uint32_t global_tick_ms;
 
 #define ESTOP_ACTIVE()           (ENABLE_ESTOP_LOGIC && g_estop)
 
-uint8_t system_homing_done_bits(void);
-uint8_t system_enabled_status(void);
 uint8_t system_all_homed(void);
-uint8_t system_reported_error_code(void);
 
 #endif

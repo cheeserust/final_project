@@ -5,7 +5,7 @@
 #include "../Inc/mcp2515.h"
 #include "../Inc/stepper.h"
 #include "../Inc/tmc.h"
-#include "../Inc/trajectory.h"
+#include "../Inc/move.h"
 
 extern void uart_debug_init(uint8_t enabled);
 extern void uart_debug_service(uint8_t enabled);
@@ -69,7 +69,7 @@ int main(void)
     uart_debug_print_ready(debug_uart);
     motor_disable();       // 초기 상태에서는 모터 출력 차단
     stepper_init();        // 스텝 모터 상태 변수 초기화
-    trajectory_clear();    // 궤적 큐와 목표 위치 초기화
+    move_clear();          // 목표와 이동 상태 초기화
     spi2_init();           // MCP2515 통신용 SPI2 초기화
     tmc5160_init_all();    // 모든 TMC 드라이버 설정
 
@@ -92,13 +92,13 @@ int main(void)
         CanFrame rx;    // [수신] CAN frame
         uint8_t rx_budget;
 
-        uart_debug_service(debug_uart);
+        //uart_debug_service(debug_uart);
 
         // 1. MCP2515가 CAN 메시지를 받았는지 확인: EXTI쪽 flag or INT가 low인지 확인
         if (g_mcp2515_irq_pending || mcp2515_int_asserted()) {
             g_mcp2515_irq_pending = 0;
 
-            // 2. RX backlog가 남지 않도록 한 loop에서 충분히 비우기
+            // 2. 읽기
             rx_budget = 32;
             while (rx_budget > 0 && mcp2515_read_frame(&rx))// 읽을 프레임이 있으면 1,
             { 
@@ -108,11 +108,9 @@ int main(void)
         }
 
         // 4. 축 이동 명령이 중간에 끊겼는지 확인
-        if (trajectory_handle_staging_timeout()) {
-            board_can_request_status_event();  // 다축 명령 수신 타임아웃 발생 시 상태 송신
-        }
-        board_can_drain_goal_events();
+        board_can_check_goal_timeout();
 
+        // 1000ms
         if ((global_tick_ms - last_can_service_ms) >= 1000) {
             last_can_service_ms = global_tick_ms;
             (void)mcp2515_service();

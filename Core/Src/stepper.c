@@ -1,6 +1,6 @@
 #include "../Inc/stepper.h"
 #include "../Inc/gpio.h"
-#include "../Inc/trajectory.h"
+#include "../Inc/move.h"
 
 
 
@@ -8,10 +8,14 @@
 static uint16_t limit_switch_debounce_count[AXIS_COUNT];
 static uint16_t homing_tick[AXIS_COUNT];
 static uint16_t step_wait_10us[AXIS_COUNT];
+
+// 인터럽트에서 float 연산을 피하려고 속도와 비율을 Q16으로 저장한다.
+// 저장할 때 실제 값에 65536을 곱하고, Q16끼리 곱한 뒤에는 >> 16 한다.
+// motion_feed_q16은 0이면 정지, 65536이면 기준 속도의 100%이다.
 static uint64_t axis_phase_q16[AXIS_COUNT];
 static uint32_t axis_nominal_rate_q16[AXIS_COUNT];
-static uint32_t motion_feed_q16;
-static uint32_t motion_feed_step_q16;
+static uint32_t motion_feed_q16;       // 현재 속도 비율: 0 ~ 65536
+static uint32_t motion_feed_step_q16;  // 1ms마다 바뀌는 속도 비율
 static int8_t axis_last_dir[AXIS_COUNT];
 static uint8_t axis_dir_setup_wait[AXIS_COUNT];
 
@@ -44,15 +48,16 @@ static uint8_t limit_switch_pressed_raw(uint8_t id)
     uint8_t value = 1;
 
     if (id == 0) {
-        value = (uint8_t)((LIM1_PORT->IDR & (1u << LIM1_PIN)) != 0);
+        // 핀이  high -> 1, low -> 0
+        value = (uint8_t)((LIM1_PORT->IDR & ((uint32_t)1 << LIM1_PIN)) != 0);
     }
 #if AXIS_COUNT > 1
     else if (id == 1) {
-        value = (uint8_t)((LIM2_PORT->IDR & (1u << LIM2_PIN)) != 0);
+        value = (uint8_t)((LIM2_PORT->IDR & ((uint32_t)1 << LIM2_PIN)) != 0);
     } else if (id == 2) {
-        value = (uint8_t)((LIM3_PORT->IDR & (1u << LIM3_PIN)) != 0);
+        value = (uint8_t)((LIM3_PORT->IDR & ((uint32_t)1 << LIM3_PIN)) != 0);
     } else if (id == 3) {
-        value = (uint8_t)((LIM4_PORT->IDR & (1u << LIM4_PIN)) != 0);
+        value = (uint8_t)((LIM4_PORT->IDR & ((uint32_t)1 << LIM4_PIN)) != 0);
     }
 #endif
 
@@ -62,8 +67,6 @@ static uint8_t limit_switch_pressed_raw(uint8_t id)
 /* 몇 틱 연속으로 눌려있어야 "진짜로 눌린 것"으로 인정 (채터링 방지) */
 static uint8_t limit_switch_debouncing_filtering(uint8_t id)
 {
-    if (id >= AXIS_COUNT) return 0;
-
     if (limit_switch_pressed_raw(id)) {
         if (limit_switch_debounce_count[id] < LIMIT_SWITCH_DEBOUNCE_TICKS) {
             limit_switch_debounce_count[id]++;
@@ -95,20 +98,20 @@ uint8_t stepper_limit_switch_status_bits(void)
 static void clear_step_high_flag(void)
 {
     if (step_high_flag[0]) {
-        STEP1_PORT->BSRR = (1u << (STEP1_PIN + 16));
+        STEP1_PORT->BSRR = ((uint32_t)1 << (STEP1_PIN + 16));
         step_high_flag[0] = 0;
     }
 #if AXIS_COUNT > 1
     if (step_high_flag[1]) {
-        STEP2_PORT->BSRR = (1u << (STEP2_PIN + 16));
+        STEP2_PORT->BSRR = ((uint32_t)1 << (STEP2_PIN + 16));
         step_high_flag[1] = 0;
     }
     if (step_high_flag[2]) {
-        STEP3_PORT->BSRR = (1u << (STEP3_PIN + 16));
+        STEP3_PORT->BSRR = ((uint32_t)1 << (STEP3_PIN + 16));
         step_high_flag[2] = 0;
     }
     if (step_high_flag[3]) {
-        STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
+        STEP4_PORT->BSRR = ((uint32_t)1 << (STEP4_PIN + 16));
         step_high_flag[3] = 0;
     }
 #endif
@@ -120,19 +123,19 @@ static void set_dir(uint8_t id, int8_t dir)
     uint8_t positive = (dir > 0) ? 1 : 0;
 
     if (id == 0) {
-        if (positive) DIR1_PORT->BSRR = (1u << DIR1_PIN);
-        else          DIR1_PORT->BSRR = (1u << (DIR1_PIN + 16));
+        if (positive) DIR1_PORT->BSRR = ((uint32_t)1 << DIR1_PIN);
+        else          DIR1_PORT->BSRR = ((uint32_t)1 << (DIR1_PIN + 16));
     }
 #if AXIS_COUNT > 1
     else if (id == 1) {
-        if (positive) DIR2_PORT->BSRR = (1u << (DIR2_PIN + 16));
-        else          DIR2_PORT->BSRR = (1u << DIR2_PIN);
+        if (positive) DIR2_PORT->BSRR = ((uint32_t)1 << (DIR2_PIN + 16));
+        else          DIR2_PORT->BSRR = ((uint32_t)1 << DIR2_PIN);
     } else if (id == 2) {
-        if (positive) DIR3_PORT->BSRR = (1u << (DIR3_PIN + 16));
-        else          DIR3_PORT->BSRR = (1u << DIR3_PIN);
+        if (positive) DIR3_PORT->BSRR = ((uint32_t)1 << (DIR3_PIN + 16));
+        else          DIR3_PORT->BSRR = ((uint32_t)1 << DIR3_PIN);
     } else if (id == 3) {
-        if (positive) DIR4_PORT->BSRR = (1u << (DIR4_PIN + 16));
-        else          DIR4_PORT->BSRR = (1u << DIR4_PIN);
+        if (positive) DIR4_PORT->BSRR = ((uint32_t)1 << (DIR4_PIN + 16));
+        else          DIR4_PORT->BSRR = ((uint32_t)1 << DIR4_PIN);
     }
 #endif
 }
@@ -141,18 +144,18 @@ static void set_dir(uint8_t id, int8_t dir)
 static void step_pin_high(uint8_t id)
 {
     if (id == 0) {
-        STEP1_PORT->BSRR = (1u << STEP1_PIN);
+        STEP1_PORT->BSRR = ((uint32_t)1 << STEP1_PIN);
         step_high_flag[0] = 1;
     }
 #if AXIS_COUNT > 1
     else if (id == 1) {
-        STEP2_PORT->BSRR = (1u << STEP2_PIN);
+        STEP2_PORT->BSRR = ((uint32_t)1 << STEP2_PIN);
         step_high_flag[1] = 1;
     } else if (id == 2) {
-        STEP3_PORT->BSRR = (1u << STEP3_PIN);
+        STEP3_PORT->BSRR = ((uint32_t)1 << STEP3_PIN);
         step_high_flag[2] = 1;
     } else if (id == 3) {
-        STEP4_PORT->BSRR = (1u << STEP4_PIN);
+        STEP4_PORT->BSRR = ((uint32_t)1 << STEP4_PIN);
         step_high_flag[3] = 1;
     }
 #endif
@@ -162,18 +165,18 @@ static void step_pin_high(uint8_t id)
 static void step_pin_low(uint8_t id)
 {
     if (id == 0) {
-        STEP1_PORT->BSRR = (1u << (STEP1_PIN + 16));
+        STEP1_PORT->BSRR = ((uint32_t)1 << (STEP1_PIN + 16));
         step_high_flag[0] = 0;
     }
 #if AXIS_COUNT > 1
     else if (id == 1) {
-        STEP2_PORT->BSRR = (1u << (STEP2_PIN + 16));
+        STEP2_PORT->BSRR = ((uint32_t)1 << (STEP2_PIN + 16));
         step_high_flag[1] = 0;
     } else if (id == 2) {
-        STEP3_PORT->BSRR = (1u << (STEP3_PIN + 16));
+        STEP3_PORT->BSRR = ((uint32_t)1 << (STEP3_PIN + 16));
         step_high_flag[2] = 0;
     } else if (id == 3) {
-        STEP4_PORT->BSRR = (1u << (STEP4_PIN + 16));
+        STEP4_PORT->BSRR = ((uint32_t)1 << (STEP4_PIN + 16));
         step_high_flag[3] = 0;
     }
 #endif
@@ -187,8 +190,6 @@ void stepper_prepare_motion(uint16_t duration_ms)
 {
     uint32_t limited_duration_ms = duration_ms;
 
-    if (limited_duration_ms == 0) limited_duration_ms = 1;
-
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         uint32_t total_steps;
 
@@ -198,14 +199,12 @@ void stepper_prepare_motion(uint16_t duration_ms)
             total_steps = (uint32_t)(g_motion_start_step[i] - g_target_step[i]);
         }
 
-        if (total_steps > 0 && max_step_rate_sps[i] > 0) {
-            uint32_t required_ms;
+        uint32_t required_ms;
 
-            required_ms = (total_steps * 1000u + max_step_rate_sps[i] - 1u) /
-                          max_step_rate_sps[i];
-            if (required_ms > limited_duration_ms) {
-                limited_duration_ms = required_ms;
-            }
+        required_ms = (total_steps * 1000 + max_step_rate_sps[i] - 1) /
+                      max_step_rate_sps[i];
+        if (required_ms > limited_duration_ms) {
+            limited_duration_ms = required_ms;
         }
     }
 
@@ -216,14 +215,15 @@ void stepper_prepare_motion(uint16_t duration_ms)
             (uint32_t)(g_motion_start_step[i] - g_target_step[i]);
         uint32_t nominal_sps;
         uint32_t feed_step;
+
+        // 이동 거리와 시간으로 축별 기준 속도를 계산한다.
         axis_nominal_rate_q16[i] = (uint32_t)(
-            ((uint64_t)total_steps * 1000u * MOTION_FEED_ONE_Q16) / limited_duration_ms);
-        nominal_sps = (axis_nominal_rate_q16[i] + MOTION_FEED_ONE_Q16 - 1u) >> 16;
+            ((uint64_t)total_steps * 1000 * MOTION_FEED_ONE_Q16) / limited_duration_ms);
+        nominal_sps = (axis_nominal_rate_q16[i] + MOTION_FEED_ONE_Q16 - 1) >> 16;
         if (nominal_sps == 0) continue;
         feed_step = (uint32_t)(((uint64_t)acceleration_sps2[i] * MOTION_FEED_ONE_Q16 +
-                               (uint64_t)nominal_sps * 1000u - 1u) /
-                              ((uint64_t)nominal_sps * 1000u));
-        if (feed_step == 0) feed_step = 1;
+                               (uint64_t)nominal_sps * 1000 - 1) /
+                              ((uint64_t)nominal_sps * 1000));
         if (feed_step < motion_feed_step_q16) motion_feed_step_q16 = feed_step;
     }
     motion_feed_q16 = 0;
@@ -274,8 +274,6 @@ void stepper_init(void)
 
 void stepper_stop_axis(uint8_t id)
 {
-    if (id >= AXIS_COUNT) return;
-
     step_pin_low(id);
     g_homing_step_request[id] = 0;
     axis_phase_q16[id] = 0;
@@ -300,14 +298,9 @@ void stepper_stop_all(void)
 // 홈 1축만
 void stepper_start_homing(uint8_t id)
 {
-    if (id >= AXIS_COUNT) {
-        g_error_code = ERR_INVALID_CMD;
-        g_state = STATE_ERROR;
-        return;
-    }
     if (ESTOP_ACTIVE() || !g_enabled || g_error_code != ERR_NONE) return;
 
-    g_homing_done_bits &= (uint8_t)~(1u << id);
+    g_homing_done_bits &= (uint8_t)~(1 << id);
     g_state = STATE_HOMING;
     limit_switch_debounce_count[id] = 0;
     homing_tick[id] = 0;
@@ -352,7 +345,7 @@ void stepper_homing_1ms(void)
     }
 
     // 기존 10us 틱 기준을 1ms 기준으로 변환
-    const uint16_t HOMING_INTERVAL_MS = (HOMING_INTERVAL_TICKS / 100) > 0 ? (HOMING_INTERVAL_TICKS / 100) : 1;
+    const uint16_t HOMING_INTERVAL_MS = HOMING_INTERVAL_TICKS / 100;
 
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         if (g_homing_done_bits & (uint8_t)(1 << i)) continue;
@@ -382,7 +375,6 @@ void stepper_homing_1ms(void)
         for (uint8_t i = 0; i < AXIS_COUNT; i++) {
             g_homing_step_request[i] = 0;
         }
-        trajectory_sync_planned_to_current();
         g_homing_active = 0;
         g_state = STATE_IDLE;
     }
@@ -419,7 +411,7 @@ static uint32_t integer_sqrt_u64(uint64_t value)
         }
         bit >>= 2;
     }
-    return result > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)result;
+    return result > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)result;
 }
 
 void stepper_motion_1ms_interrupt(void)
@@ -435,13 +427,14 @@ void stepper_motion_1ms_interrupt(void)
         remaining = g_target_step[i] >= g_current_step[i] ?
                     (uint64_t)(g_target_step[i] - g_current_step[i]) :
                     (uint64_t)(g_current_step[i] - g_target_step[i]);
-        allowed_sps = integer_sqrt_u64(2u * (uint64_t)acceleration_sps2[i] * remaining);
+
+        // 남은 거리 안에서 멈출 수 있는 속도 비율을 구한다.
+        allowed_sps = integer_sqrt_u64(2 * (uint64_t)acceleration_sps2[i] * remaining);
         cap_feed = (uint32_t)(((uint64_t)allowed_sps << 32) /
                               axis_nominal_rate_q16[i]);
         if (cap_feed < target_feed) target_feed = cap_feed;
     }
 
-    if (motion_feed_step_q16 == 0) motion_feed_step_q16 = 1;
     if (motion_feed_q16 < target_feed) {
         uint32_t next = motion_feed_q16 + motion_feed_step_q16;
         motion_feed_q16 = next > target_feed ? target_feed : next;
@@ -460,7 +453,6 @@ void stepper_10us_interrupt(void)
 
     // 2. START된 Goal은 ESTOP 외의 상태/에러 변경으로 중단하지 않음
     if (ESTOP_ACTIVE()) return;
-    if (!g_motion_active && (!g_enabled || g_error_code != ERR_NONE)) return;
 
     // 3. 홈으로 가는 플래그 처리
     if (g_homing_active) {
@@ -487,7 +479,8 @@ void stepper_10us_interrupt(void)
     // 4. 각 축별 스텝 생성
     for (uint8_t i = 0; i < AXIS_COUNT; i++) {
         uint64_t actual_rate_q16;
-        const uint64_t phase_threshold = (uint64_t)100000u << 16;
+        // 10us 인터럽트가 1초에 100000번 실행된다.
+        const uint64_t phase_threshold = (uint64_t)100000 << 16;
         int8_t dir;
 
         // 목표에 도달하면
@@ -498,6 +491,7 @@ void stepper_10us_interrupt(void)
             step_wait_10us[i]--;
         }
 
+        // 기준 속도에 현재 가감속 비율을 적용한다.
         actual_rate_q16 = ((uint64_t)axis_nominal_rate_q16[i] * motion_feed_q16) >> 16;
         axis_phase_q16[i] += actual_rate_q16;
         if (axis_phase_q16[i] < phase_threshold || step_wait_10us[i] > 0) {

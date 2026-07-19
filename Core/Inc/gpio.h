@@ -65,8 +65,8 @@
 
 /* BSRR is a single atomic write, so an ISR changing another pin on the same
  * GPIO port cannot be overwritten by a read-modify-write of ODR. */
-#define GPIO_SET_PIN(port, pin)      ((port)->BSRR = (1u << (pin)))
-#define GPIO_CLEAR_PIN(port, pin)    ((port)->BSRR = (1u << ((pin) + 16u)))
+#define GPIO_SET_PIN(port, pin)      ((port)->BSRR = ((uint32_t)1 << (pin)))
+#define GPIO_CLEAR_PIN(port, pin)    ((port)->BSRR = ((uint32_t)1 << ((pin) + 16)))
 
 void gpio_init(void);
 void motor_enable(void);

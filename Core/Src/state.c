@@ -12,23 +12,7 @@ volatile int32_t g_target_step[AXIS_COUNT];
 volatile int32_t g_motion_start_step[AXIS_COUNT];
 volatile uint32_t global_tick_ms = 0;
 
-uint8_t system_homing_done_bits(void)
-{
-    return (uint8_t)(g_homing_done_bits & ((1 << AXIS_COUNT) - 1));
-}
-
-uint8_t system_enabled_status(void)
-{
-    return g_enabled ? 1 : 0;
-}
-
 uint8_t system_all_homed(void)
 {
-    return (system_homing_done_bits() == (uint8_t)((1 << AXIS_COUNT) - 1)) ? 1 : 0;
-}
-
-uint8_t system_reported_error_code(void)
-{
-    if (g_error_code != ERR_NONE) return g_error_code;
-    return ERR_NONE;
+    return g_homing_done_bits == (uint8_t)((1 << AXIS_COUNT) - 1);
 }
